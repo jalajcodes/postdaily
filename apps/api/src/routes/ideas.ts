@@ -7,42 +7,45 @@ import { generateIdeas } from "../ai/writer";
 import type { AppEnv } from "../lib/auth";
 
 export async function createIdeasForToday(userId: string) {
-  const settings = getSettings(userId);
-  const profile = getProfile(userId);
+  const settings = await getSettings(userId);
+  const profile = await getProfile(userId);
   const recent = (
-    db
-      .prepare("SELECT content FROM posts WHERE user_id = ? AND status IN ('published','queued') ORDER BY updated_at DESC LIMIT 10")
-      .all(userId) as any[]
+    await db.all(
+      "SELECT content FROM posts WHERE user_id = ? AND status IN ('published','queued') ORDER BY updated_at DESC LIMIT 10",
+      userId,
+    )
   ).map((r) => r.content);
   const existing = (
-    db.prepare("SELECT text FROM ideas WHERE user_id = ? AND status = 'new' ORDER BY created_at DESC LIMIT 30").all(userId) as any[]
+    await db.all("SELECT text FROM ideas WHERE user_id = ? AND status = 'new' ORDER BY created_at DESC LIMIT 30", userId)
   ).map((r) => r.text);
   const texts = await generateIdeas(settings, profile, recent, existing);
   const today = DateTime.now().setZone(settings.timezone).toISODate();
-  const ins = db.prepare("INSERT INTO ideas (id, user_id, text, source, for_date) VALUES (?, ?, ?, 'ai', ?)");
-  const ids = texts.map((t) => {
-    const id = newId();
-    ins.run(id, userId, t, today);
-    return id;
-  });
-  return ids.map((id) => toIdea(db.prepare("SELECT * FROM ideas WHERE id = ?").get(id) as any));
+  const ids = texts.map(() => newId());
+  await db.batch(
+    texts.map((t, i) => ({
+      sql: "INSERT INTO ideas (id, user_id, text, source, for_date) VALUES (?, ?, ?, 'ai', ?)",
+      params: [ids[i], userId, t, today],
+    })),
+  );
+  const rows = await db.all(`SELECT * FROM ideas WHERE id IN (${ids.map(() => "?").join(",")})`, ...ids);
+  return ids.map((id) => toIdea(rows.find((r) => r.id === id)!));
 }
 
 export const ideas = new Hono<AppEnv>();
 
-ideas.get("/ideas", (c) => {
+ideas.get("/ideas", async (c) => {
   const status = c.req.query("status");
   const rows = status
-    ? db.prepare("SELECT * FROM ideas WHERE user_id = ? AND status = ? ORDER BY created_at DESC").all(c.get("userId"), status)
-    : db.prepare("SELECT * FROM ideas WHERE user_id = ? ORDER BY created_at DESC").all(c.get("userId"));
-  return c.json((rows as any[]).map(toIdea));
+    ? await db.all("SELECT * FROM ideas WHERE user_id = ? AND status = ? ORDER BY created_at DESC", c.get("userId"), status)
+    : await db.all("SELECT * FROM ideas WHERE user_id = ? ORDER BY created_at DESC", c.get("userId"));
+  return c.json(rows.map(toIdea));
 });
 
 ideas.post("/ideas", async (c) => {
   const { text } = z.object({ text: z.string().min(1) }).parse(await c.req.json());
   const id = newId();
-  db.prepare("INSERT INTO ideas (id, user_id, text, source) VALUES (?, ?, ?, 'me')").run(id, c.get("userId"), text.trim());
-  return c.json(toIdea(db.prepare("SELECT * FROM ideas WHERE id = ?").get(id) as any));
+  await db.run("INSERT INTO ideas (id, user_id, text, source) VALUES (?, ?, ?, 'me')", id, c.get("userId"), text.trim());
+  return c.json(toIdea((await db.get("SELECT * FROM ideas WHERE id = ?", id))!));
 });
 
 ideas.post("/ideas/generate", async (c) => c.json(await createIdeasForToday(c.get("userId"))));
@@ -53,13 +56,13 @@ ideas.patch("/ideas/:id", async (c) => {
     .parse(await c.req.json());
   const uid = c.get("userId");
   const id = c.req.param("id");
-  if (body.status) db.prepare("UPDATE ideas SET status = ? WHERE id = ? AND user_id = ?").run(body.status, id, uid);
-  if (body.text) db.prepare("UPDATE ideas SET text = ? WHERE id = ? AND user_id = ?").run(body.text, id, uid);
-  const row = db.prepare("SELECT * FROM ideas WHERE id = ? AND user_id = ?").get(id, uid);
-  return row ? c.json(toIdea(row as any)) : c.json({ error: "Not found" }, 404);
+  if (body.status) await db.run("UPDATE ideas SET status = ? WHERE id = ? AND user_id = ?", body.status, id, uid);
+  if (body.text) await db.run("UPDATE ideas SET text = ? WHERE id = ? AND user_id = ?", body.text, id, uid);
+  const row = await db.get("SELECT * FROM ideas WHERE id = ? AND user_id = ?", id, uid);
+  return row ? c.json(toIdea(row)) : c.json({ error: "Not found" }, 404);
 });
 
-ideas.delete("/ideas/:id", (c) => {
-  db.prepare("DELETE FROM ideas WHERE id = ? AND user_id = ?").run(c.req.param("id"), c.get("userId"));
+ideas.delete("/ideas/:id", async (c) => {
+  await db.run("DELETE FROM ideas WHERE id = ? AND user_id = ?", c.req.param("id"), c.get("userId"));
   return c.json({ ok: true });
 });

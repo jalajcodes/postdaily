@@ -14,9 +14,23 @@ A personal app that helps you post on LinkedIn every day, in your own voice. It 
 
 ```
 packages/shared   Types, typed API client, LinkedIn fold logic. Reusable by a future Expo / React Native app.
-apps/api          Hono + SQLite (better-sqlite3) REST API, LinkedIn OAuth + Posts API, AI providers, scheduler
+apps/api          Hono REST API, LinkedIn OAuth + Posts API, AI providers, scheduler
+  src/app.ts        The app itself, shared by both runtimes
+  src/node.ts       Mac/Node entry: SQLite file, Claude-login AI, macOS notifications, 1-minute timer
+  src/worker.ts     Cloudflare entry: D1 database, Cron Trigger, web app served as static assets
+  migrations/       Database schema (D1 migrations; the Node server applies them on start)
 apps/web          React + Vite + Tailwind + TanStack Query
 ```
+
+The same code runs in two places:
+
+| | Mac (`npm run dev`) | Cloudflare (`npm run cf:deploy`) |
+|---|---|---|
+| Database | `apps/api/data/postdaily.db` | D1 |
+| Scheduler | 60-second timer | Cron Trigger, every minute |
+| AI providers | Claude login, Anthropic, OpenRouter, OpenAI, Ollama | OpenRouter (free models, default), Anthropic, OpenAI |
+| Reminders | In-app, browser, macOS | In-app, browser |
+| Sign-in | LinkedIn, or local login | LinkedIn only (first user or `ALLOWED_EMAILS`) |
 
 The API is a plain REST service with bearer-token auth, so a mobile app can use the same endpoints and `@postdaily/shared` client. For mobile, the LinkedIn OAuth flow already accepts a `postdaily://` deep link as the redirect.
 
@@ -36,7 +50,30 @@ Production (single process that serves the web build):
 npm run build && npm start   # http://localhost:8787 (set WEB_URL=http://localhost:8787)
 ```
 
-The scheduler runs inside the API process, so scheduled posts only go out while it is running. To keep it running, use a small always-on box or a launchd agent on your Mac.
+The scheduler runs inside the API process, so scheduled posts only go out while it is running. To keep it always on for free, deploy to Cloudflare (below).
+
+## Deploy to Cloudflare (free plan)
+
+Run these from `apps/api` (`cd apps/api`). Wrangler is already a project dependency.
+
+1. **Log in:** `npx wrangler login`
+2. **Create the database:** `npx wrangler d1 create postdaily`. Copy the printed `database_id` into `apps/api/wrangler.jsonc`.
+3. **Add secrets.** Each command asks you to paste the value:
+   ```bash
+   npx wrangler secret put LINKEDIN_CLIENT_ID
+   npx wrangler secret put LINKEDIN_CLIENT_SECRET
+   npx wrangler secret put OPENROUTER_API_KEY    # free models; and/or:
+   npx wrangler secret put ANTHROPIC_API_KEY
+   npx wrangler secret put ALLOWED_EMAILS        # optional: your LinkedIn email; otherwise the first sign-in owns the app
+   ```
+4. **Deploy:** `npm run cf:deploy`. This builds the web app, applies database migrations, and deploys. It prints your URL, for example `https://postdaily.<you>.workers.dev`.
+5. **LinkedIn:** in your LinkedIn app's **Auth** tab, add the redirect URL `https://postdaily.<you>.workers.dev/api/auth/linkedin/callback`.
+6. Open the URL and sign in with LinkedIn. Your data starts empty on Cloudflare. Re-enter your style profile, then set your posting times (Queue → "Twice a day").
+
+Notes:
+- **Free plan fit:** 100k requests/day, a 1-minute cron, D1 (5M rows read and 100k written per day, 500 MB). PostDaily uses a tiny fraction of that. D1 queries fail for the rest of the day (until 00:00 UTC) if the free limits are ever exceeded.
+- **Test locally first:** copy `.dev.vars.example` to `.dev.vars`, then run `npm run cf:dev` (Worker at http://localhost:8787 with a local D1). To fire the scheduler by hand: `curl "http://localhost:8787/cdn-cgi/handler/scheduled?cron=*+*+*+*+*"`.
+- **Don't schedule the same post in both places.** The Mac and Cloudflare versions have separate databases. If both are running, each publishes its own queue.
 
 ## LinkedIn setup (once)
 
@@ -54,6 +91,7 @@ LinkedIn access tokens last about 60 days. Settings shows the expiry date, and y
 |---|---|---|
 | Claude (my Claude login) | `claude` CLI signed in (uses the Claude Agent SDK) | `claude-opus-5-5` |
 | Anthropic API key | `ANTHROPIC_API_KEY` | `claude-opus-5-5` (server-side refusal fallback on) |
+| OpenRouter | `OPENROUTER_API_KEY` (free at openrouter.ai/keys) | `particle-ai/particle-1:free` (fastest in a Nov 2026 test, ~9 s for 3 drafts), with fast free fallbacks. Settings lists all free models. |
 | OpenAI | `OPENAI_API_KEY` | `gpt-5` |
 | Ollama | Ollama running locally | `llama3.1` |
 

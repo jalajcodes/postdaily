@@ -15,6 +15,13 @@ export function SettingsPage() {
   const config = useQuery({ queryKey: ["auth-config"], queryFn: api.auth.config });
   const [s, setS] = useState<Settings | null>(null);
   const [perm, setPerm] = useState(typeof Notification !== "undefined" ? Notification.permission : "denied");
+  const [showPaid, setShowPaid] = useState(false);
+  const models = useQuery({
+    queryKey: ["models", s?.aiProvider],
+    queryFn: () => api.settings.models(s!.aiProvider),
+    enabled: s?.aiProvider === "openrouter",
+    staleTime: 3_600_000,
+  });
 
   useEffect(() => {
     if (settingsQ.data) setS(settingsQ.data);
@@ -76,6 +83,35 @@ export function SettingsPage() {
           </div>
           <div>
             <Label>Model</Label>
+            {s.aiProvider === "openrouter" && (
+              <div className="mb-2 space-y-2">
+                <select
+                  className={inputCls}
+                  value={models.data?.some((m) => m.id === s.aiModel) ? s.aiModel : ""}
+                  onChange={(e) => e.target.value && set("aiModel", e.target.value)}
+                >
+                  <option value="">{models.isLoading ? "Loading models…" : "Pick a model…"}</option>
+                  {models.data
+                    ?.filter((m) => showPaid || m.free)
+                    .map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.free ? "Free · " : ""}
+                        {m.name}
+                        {m.contextLength ? ` (${Math.round(m.contextLength / 1000)}k)` : ""}
+                      </option>
+                    ))}
+                </select>
+                <label className="flex items-center gap-2 text-xs text-slate-500">
+                  <input type="checkbox" checked={showPaid} onChange={(e) => setShowPaid(e.target.checked)} />
+                  Show paid models too ({models.data?.filter((m) => m.free).length ?? 0} free)
+                </label>
+                <p className="text-xs text-slate-500">
+                  Fastest in our test: <code>particle-ai/particle-1:free</code> (~9 s for 3 drafts). If a free model is busy,
+                  PostDaily falls back to another fast free one. Avoid <code>openrouter/free</code>: it can take minutes. Free
+                  models have daily request limits and some providers may log prompts.
+                </p>
+              </div>
+            )}
             <input className={inputCls} value={s.aiModel} onChange={(e) => set("aiModel", e.target.value)} />
           </div>
           <div>
@@ -136,6 +172,25 @@ export function SettingsPage() {
               Remind me if I haven't posted by
               <input type="time" className={`${inputBaseCls}`} value={s.reminderTime} onChange={(e) => set("reminderTime", e.target.value)} />
             </label>
+            <div>
+              <label className="flex flex-wrap items-center gap-2 text-sm">
+                <input type="checkbox" checked={s.jitterEnabled} onChange={(e) => set("jitterEnabled", e.target.checked)} />
+                Shift scheduled posts randomly by ±
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  className={`${inputBaseCls} w-16`}
+                  value={s.jitterMinutes}
+                  onChange={(e) => set("jitterMinutes", Math.min(30, Math.max(1, Number(e.target.value) || 1)))}
+                />
+                minutes
+              </label>
+              <p className="mt-1 ml-6 text-xs text-slate-500">
+                Default for new scheduled posts, so they don't go out on the exact same minute every day. You can change it per
+                post in the editor.
+              </p>
+            </div>
             {"Notification" in window && perm !== "granted" && (
               <Button variant="secondary" onClick={() => Notification.requestPermission().then(setPerm)}>
                 Enable browser notifications

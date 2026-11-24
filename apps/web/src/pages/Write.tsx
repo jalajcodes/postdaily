@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { FileText, Sparkles } from "lucide-react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BookmarkPlus, Check, FileText, Sparkles } from "lucide-react";
 import type { Draft, PostLength } from "@postdaily/shared";
 import { api } from "../lib/api";
 import { Button, Card, ErrorText, PageHeader, inputCls } from "../components/ui";
 
 export function WritePage() {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const [params] = useSearchParams();
   const ideaId = params.get("idea");
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings.get });
@@ -25,13 +26,34 @@ export function WritePage() {
 
   const generate = useMutation({
     mutationFn: () => api.ai.drafts(input, len),
-    onSuccess: (r) => setDrafts(r.drafts),
+    onSuccess: (r) => {
+      setDrafts(r.drafts);
+      setSavedIds({});
+    },
   });
 
   const pick = useMutation({
     mutationFn: (content: string) => api.posts.create({ content, ideaId }),
     onSuccess: (p) => navigate(`/posts/${p.id}`),
   });
+
+  // Save drafts for later without leaving the page. Maps draft index -> saved post id.
+  const [savedIds, setSavedIds] = useState<Record<number, string>>({});
+  const saveDraft = useMutation({
+    mutationFn: async (indexes: number[]) => {
+      const results: [number, string][] = [];
+      for (const i of indexes) {
+        const p = await api.posts.create({ content: drafts[i].content, ideaId });
+        results.push([i, p.id]);
+      }
+      return results;
+    },
+    onSuccess: (results) => {
+      setSavedIds((s) => ({ ...s, ...Object.fromEntries(results) }));
+      qc.invalidateQueries({ queryKey: ["posts"] });
+    },
+  });
+  const unsaved = drafts.map((_, i) => i).filter((i) => !savedIds[i]);
 
   return (
     <>
@@ -77,20 +99,65 @@ export function WritePage() {
       )}
 
       {drafts.length > 0 && (
-        <div className="mt-6 grid gap-4 lg:grid-cols-3">
-          {drafts.map((d, i) => (
-            <Card key={i} className="flex flex-col">
-              <div className="mb-2 text-xs font-semibold tracking-wide text-brand-600 uppercase">{d.angle}</div>
-              <div className="flex-1 text-sm leading-relaxed whitespace-pre-wrap text-slate-800">{d.content}</div>
-              <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
-                <span className="text-xs text-slate-400">{d.content.length} chars</span>
-                <Button onClick={() => pick.mutate(d.content)} loading={pick.isPending && pick.variables === d.content}>
-                  Use this
-                </Button>
-              </div>
-            </Card>
-          ))}
-        </div>
+        <>
+          <div className="mt-6 mb-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-slate-500">
+              {Object.keys(savedIds).length > 0 ? (
+                <>
+                  {Object.keys(savedIds).length} saved to{" "}
+                  <Link to="/drafts" className="text-brand-600 hover:underline">
+                    Drafts
+                  </Link>
+                  .
+                </>
+              ) : (
+                "Pick one to edit now, or save drafts for later."
+              )}
+            </p>
+            <Button
+              variant="secondary"
+              disabled={!unsaved.length}
+              loading={saveDraft.isPending && saveDraft.variables?.length > 1}
+              onClick={() => saveDraft.mutate(unsaved)}
+            >
+              <BookmarkPlus className="size-4" /> {unsaved.length ? `Save all ${unsaved.length} as drafts` : "All saved"}
+            </Button>
+          </div>
+          <ErrorText error={saveDraft.error} />
+          <div className="grid gap-4 lg:grid-cols-3">
+            {drafts.map((d, i) => (
+              <Card key={i} className="flex flex-col">
+                <div className="mb-2 text-xs font-semibold tracking-wide text-brand-600 uppercase">{d.angle}</div>
+                <div className="flex-1 text-sm leading-relaxed whitespace-pre-wrap text-slate-800">{d.content}</div>
+                <div className="mt-4 flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
+                  <span className="text-xs text-slate-400">{d.content.length} chars</span>
+                  <div className="flex gap-2">
+                    {savedIds[i] ? (
+                      <Button variant="ghost" className="text-green-700" onClick={() => navigate(`/posts/${savedIds[i]}`)}>
+                        <Check className="size-4" /> Saved
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="secondary"
+                        disabled={saveDraft.isPending}
+                        loading={saveDraft.isPending && saveDraft.variables?.length === 1 && saveDraft.variables[0] === i}
+                        onClick={() => saveDraft.mutate([i])}
+                      >
+                        <BookmarkPlus className="size-4" /> Save draft
+                      </Button>
+                    )}
+                    <Button
+                      onClick={() => (savedIds[i] ? navigate(`/posts/${savedIds[i]}`) : pick.mutate(d.content))}
+                      loading={pick.isPending && pick.variables === d.content}
+                    >
+                      Use this
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </>
       )}
     </>
   );

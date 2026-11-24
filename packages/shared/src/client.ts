@@ -5,6 +5,7 @@ import type {
   Draft,
   Idea,
   IdeaStatus,
+  ModelOption,
   Post,
   PostLength,
   Profile,
@@ -69,6 +70,8 @@ export function createClient(opts: ClientOptions) {
       get: () => req<Settings>("GET", "/settings"),
       update: (s: Partial<Settings>) => req<Settings>("PUT", "/settings", s),
       providers: () => req<ProviderStatus[]>("GET", "/ai/providers"),
+      /** Model list for providers that publish one (currently OpenRouter). */
+      models: (provider: string) => req<ModelOption[]>("GET", `/ai/models?provider=${encodeURIComponent(provider)}`),
     },
     profile: {
       get: () => req<Profile>("GET", "/profile"),
@@ -93,10 +96,11 @@ export function createClient(opts: ClientOptions) {
       list: (status?: string) => req<Post[]>("GET", `/posts${status ? `?status=${status}` : ""}`),
       get: (id: string) => req<Post>("GET", `/posts/${id}`),
       create: (p: { content: string; ideaId?: string | null }) => req<Post>("POST", "/posts", p),
-      update: (id: string, p: { content?: string; scheduledAt?: string | null }) =>
+      /** `jitter` turns the random ±N minute buffer on/off for this post (defaults to the setting). */
+      update: (id: string, p: { content?: string; scheduledAt?: string | null; jitter?: boolean }) =>
         req<Post>("PATCH", `/posts/${id}`, p),
       remove: (id: string) => req<{ ok: true }>("DELETE", `/posts/${id}`),
-      queue: (id: string) => req<Post>("POST", `/posts/${id}/queue`),
+      queue: (id: string, opts?: { jitter?: boolean }) => req<Post>("POST", `/posts/${id}/queue`, opts ?? {}),
       unschedule: (id: string) => req<Post>("POST", `/posts/${id}/unschedule`),
       publish: (id: string) => req<Post>("POST", `/posts/${id}/publish`),
     },

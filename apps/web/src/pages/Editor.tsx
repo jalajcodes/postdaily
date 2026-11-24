@@ -80,9 +80,20 @@ export function EditorPage() {
   const saveFirst = async () => {
     if (!saved) await save.mutateAsync(content);
   };
-  const queue = useMutation({ mutationFn: async () => (await saveFirst(), api.posts.queue(id!)), onSuccess: refresh });
+  // Random ±N min buffer: per-post choice, defaulting to the setting (or the queued post's current state).
+  const [jitterChoice, setJitterChoice] = useState<boolean | null>(null);
+  const jitter =
+    jitterChoice ??
+    (post.data?.status === "queued" ? post.data.jitterMinutes > 0 : (settings.data?.jitterEnabled ?? true));
+  const jitterMinutes = post.data?.jitterMinutes || settings.data?.jitterMinutes || 7;
+  const toggleJitter = useMutation({
+    mutationFn: (on: boolean) => api.posts.update(id!, { jitter: on }),
+    onSuccess: refresh,
+  });
+
+  const queue = useMutation({ mutationFn: async () => (await saveFirst(), api.posts.queue(id!, { jitter })), onSuccess: refresh });
   const schedule = useMutation({
-    mutationFn: async () => (await saveFirst(), api.posts.update(id!, { scheduledAt: new Date(when).toISOString() })),
+    mutationFn: async () => (await saveFirst(), api.posts.update(id!, { scheduledAt: new Date(when).toISOString(), jitter })),
     onSuccess: refresh,
   });
   const unschedule = useMutation({ mutationFn: () => api.posts.unschedule(id!), onSuccess: refresh });
@@ -110,6 +121,7 @@ export function EditorPage() {
           {p.status === "queued" && p.scheduledAt && (
             <span className="flex items-center gap-1 text-sm text-slate-600">
               <Clock className="size-3.5" /> {formatWhen(p.scheduledAt, settings.data?.timezone)}
+              {p.jitterMinutes > 0 && <span className="text-slate-400">± {p.jitterMinutes} min</span>}
             </span>
           )}
           {isPublished && p.publishedAt && (
@@ -226,6 +238,24 @@ export function EditorPage() {
                 Schedule
               </Button>
             </div>
+            <label className="flex cursor-pointer items-start gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={jitter}
+                disabled={toggleJitter.isPending}
+                onChange={(e) => {
+                  setJitterChoice(e.target.checked);
+                  if (p.status === "queued") toggleJitter.mutate(e.target.checked);
+                }}
+              />
+              <span>
+                Random ±{jitterMinutes} min buffer
+                <span className="block text-xs text-slate-500">
+                  Posts go out a few minutes before or after the set time, so they don't look automated.
+                </span>
+              </span>
+            </label>
             <Button
               variant="secondary"
               className="w-full"

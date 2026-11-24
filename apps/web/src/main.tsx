@@ -10,6 +10,7 @@ import { TodayPage } from "./pages/Today";
 import { WritePage } from "./pages/Write";
 import { EditorPage } from "./pages/Editor";
 import { IdeasPage } from "./pages/Ideas";
+import { DraftsPage } from "./pages/Drafts";
 import { QueuePage } from "./pages/Queue";
 import { StylePage } from "./pages/Style";
 import { SettingsPage } from "./pages/Settings";
@@ -39,6 +40,7 @@ createRoot(document.getElementById("root")!).render(
             <Route index element={<TodayPage />} />
             <Route path="write" element={<WritePage />} />
             <Route path="posts/:id" element={<EditorPage />} />
+            <Route path="drafts" element={<DraftsPage />} />
             <Route path="ideas" element={<IdeasPage />} />
             <Route path="queue" element={<QueuePage />} />
             <Route path="style" element={<StylePage />} />

@@ -1,30 +1,32 @@
 // LinkedIn OAuth (OpenID Connect) and posting via the Posts API.
-export const linkedinEnabled = () => Boolean(process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET);
+import { env } from "../runtime/env";
 
-const redirectUri = () => `${process.env.API_URL ?? "http://localhost:8787"}/api/auth/linkedin/callback`;
+export const linkedinEnabled = () => Boolean(env("LINKEDIN_CLIENT_ID") && env("LINKEDIN_CLIENT_SECRET"));
+
+const redirectUri = (apiUrl: string) => `${apiUrl}/api/auth/linkedin/callback`;
 const SCOPES = ["openid", "profile", "email", "w_member_social"];
 
-export function authorizeUrl(state: string) {
+export function authorizeUrl(apiUrl: string, state: string) {
   const p = new URLSearchParams({
     response_type: "code",
-    client_id: process.env.LINKEDIN_CLIENT_ID!,
-    redirect_uri: redirectUri(),
+    client_id: env("LINKEDIN_CLIENT_ID")!,
+    redirect_uri: redirectUri(apiUrl),
     state,
     scope: SCOPES.join(" "),
   });
   return `https://www.linkedin.com/oauth/v2/authorization?${p}`;
 }
 
-export async function exchangeCode(code: string): Promise<{ accessToken: string; expiresIn: number }> {
+export async function exchangeCode(apiUrl: string, code: string): Promise<{ accessToken: string; expiresIn: number }> {
   const res = await fetch("https://www.linkedin.com/oauth/v2/accessToken", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       grant_type: "authorization_code",
       code,
-      redirect_uri: redirectUri(),
-      client_id: process.env.LINKEDIN_CLIENT_ID!,
-      client_secret: process.env.LINKEDIN_CLIENT_SECRET!,
+      redirect_uri: redirectUri(apiUrl),
+      client_id: env("LINKEDIN_CLIENT_ID")!,
+      client_secret: env("LINKEDIN_CLIENT_SECRET")!,
     }),
   });
   if (!res.ok) throw new Error(`LinkedIn token exchange failed: ${res.status} ${await res.text()}`);
@@ -55,7 +57,7 @@ export async function publishPost(accessToken: string, personSub: string, conten
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
-      "LinkedIn-Version": process.env.LINKEDIN_API_VERSION || "202606",
+      "LinkedIn-Version": env("LINKEDIN_API_VERSION") ?? "202606",
       "X-Restli-Protocol-Version": "2.0.0",
     },
     body: JSON.stringify({

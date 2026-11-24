@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, X } from "lucide-react";
-import type { Post, Slot } from "@postdaily/shared";
+import { Check, Plus, X } from "lucide-react";
+import { POSTING_PRESETS, type Post, type PostingPreset, type Slot } from "@postdaily/shared";
 import { DAY_NAMES, api, formatWhen } from "../lib/api";
 import { Button, Card, ErrorText, PageHeader, Spinner, inputBaseCls, inputCls } from "../components/ui";
 
@@ -27,7 +27,11 @@ export function QueuePage() {
 
       <Section title="Scheduled" empty="Nothing scheduled. Open a draft and add it to the queue.">
         {queued.isLoading ? <Spinner /> : queued.data?.map((p) => (
-          <PostRow key={p.id} post={p} meta={formatWhen(p.scheduledAt!, tz)}>
+          <PostRow
+            key={p.id}
+            post={p}
+            meta={`${formatWhen(p.scheduledAt!, tz)}${p.jitterMinutes ? ` ± ${p.jitterMinutes} min` : ""}`}
+          >
             <Button variant="ghost" className="py-1 text-xs" onClick={() => unschedule.mutate(p.id)}>
               Unschedule
             </Button>
@@ -43,9 +47,11 @@ export function QueuePage() {
         </Section>
       )}
 
-      <Section title="Drafts" empty="No drafts.">
-        {drafts.data?.map((p) => <PostRow key={p.id} post={p} meta={`Edited ${formatWhen(p.updatedAt, tz)}`} />)}
-      </Section>
+      {!!drafts.data?.length && (
+        <Link to="/drafts" className="mt-6 block text-sm text-brand-600 hover:underline">
+          You have {drafts.data.length} saved draft{drafts.data.length === 1 ? "" : "s"} →
+        </Link>
+      )}
 
       <Section title="Published" empty="Nothing published yet.">
         {published.data?.slice(0, 20).map((p) => (
@@ -98,10 +104,60 @@ function SlotsEditor() {
 
   const byDay = (d: number) => slots.filter((s) => s.dayOfWeek === d).sort((a, b) => a.time.localeCompare(b.time));
 
+  // Presets replace all slots and set the weekly goal to match.
+  const applyPreset = useMutation({
+    mutationFn: async (key: PostingPreset) => {
+      const preset = POSTING_PRESETS[key];
+      const s = await api.slots.put(preset.slots.map((x) => ({ ...x })));
+      await api.settings.update({ weeklyGoal: preset.slots.length });
+      return s;
+    },
+    onSuccess: (s) => {
+      setSlots(s);
+      qc.setQueryData(["slots"], s);
+      qc.invalidateQueries({ queryKey: ["settings"] });
+      qc.invalidateQueries({ queryKey: ["stats"] });
+    },
+  });
+  const matches = (key: PostingPreset) => {
+    const want = POSTING_PRESETS[key].slots.map((x) => `${x.dayOfWeek}-${x.time}`).sort().join();
+    return slots.map((x) => `${x.dayOfWeek}-${x.time}`).sort().join() === want;
+  };
+
   return (
     <Card>
       <div className="mb-1 text-sm font-medium">Weekly posting times</div>
       <p className="mb-4 text-xs text-slate-500">“Add to queue” puts a post into the next free time below. Set them once.</p>
+
+      <div className="mb-4 grid gap-2 sm:grid-cols-2">
+        {(Object.keys(POSTING_PRESETS) as PostingPreset[]).map((key) => {
+          const preset = POSTING_PRESETS[key];
+          const active = matches(key);
+          return (
+            <button
+              key={key}
+              disabled={active || applyPreset.isPending}
+              onClick={() => {
+                if (confirm(`Replace your posting times with “${preset.label}” (${preset.description})? Already-queued posts keep their times.`))
+                  applyPreset.mutate(key);
+              }}
+              className={`rounded-lg border p-3 text-left ${active ? "border-brand-500 bg-brand-50" : "border-slate-200 hover:bg-slate-50"}`}
+            >
+              <div className="flex items-center gap-1.5 text-sm font-medium">
+                {preset.label}
+                {key === "twice" && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">2/day</span>}
+                {active && <Check className="ml-auto size-4 text-brand-600" />}
+              </div>
+              <div className="text-xs text-slate-500">{preset.description}</div>
+            </button>
+          );
+        })}
+      </div>
+      <p className="mb-4 text-xs text-slate-400">
+        Based on 2026 engagement data: weekday afternoons (3–8 PM) and late mornings get the most engagement. Two posts a day
+        should be about 7 hours apart so they don't compete; expect slightly lower reach per post but more total reach.
+      </p>
+      <ErrorText error={applyPreset.error} />
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
         {[1, 2, 3, 4, 5, 6, 7].map((d) => (
           <div key={d} className="rounded-lg border border-slate-100 bg-slate-50 p-2">

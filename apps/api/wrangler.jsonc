@@ -1,0 +1,36 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "postdaily",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // The built web app (apps/web/dist) is served as static assets; /api/* goes to the Worker.
+  "assets": {
+    "directory": "../web/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  // The scheduler: publish due posts, morning ideas, reminders. Once a minute.
+  "triggers": { "crons": ["* * * * *"] },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "postdaily",
+      // From: npx wrangler d1 create postdaily
+      "database_id": "4443a101-a5b2-4ab7-94cb-eeab74871af2",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Non-secret settings. Secrets (LINKEDIN_CLIENT_SECRET, ANTHROPIC_API_KEY, ...) are set with
+  // `npx wrangler secret put NAME` and never live in this file.
+  "vars": {
+    "DEFAULT_AI_PROVIDER": "openrouter",
+    "LINKEDIN_API_VERSION": "202606"
+  },
+
+  "observability": { "enabled": true }
+}

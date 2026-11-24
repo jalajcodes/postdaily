@@ -12,10 +12,13 @@
     "dev:web": "npm run dev -w @postdaily/web",
     "build": "npm run build -w @postdaily/web",
     "start": "npm run start -w @postdaily/api",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "cf:dev": "npm run cf:dev -w @postdaily/api",
+    "cf:deploy": "npm run cf:deploy -w @postdaily/api"
   },
   "devDependencies": {
     "concurrently": "^10.0.7",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "wrangler": "^4.168.0"
   }
 }

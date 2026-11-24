@@ -81,7 +81,8 @@ async function expandInput(input: string): Promise<string> {
   if (!/^https?:\/\/\S+$/.test(url)) return input;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(8000), headers: { "User-Agent": "Mozilla/5.0 PostDaily" } });
-    const html = await res.text();
+    // Cap the page size: keeps the text cleanup cheap (Cloudflare's free plan allows 10 ms CPU).
+    const html = (await res.text()).slice(0, 300_000);
     const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.trim() ?? "";
     const body = html
       .replace(/<(script|style|noscript|svg|nav|footer|header)[\s\S]*?<\/\1>/gi, " ")

@@ -1,11 +1,10 @@
 // Switchable AI providers. Each one turns (system, prompt) into text.
+// Providers here run anywhere (Node and Cloudflare). The "Claude login" provider needs a local
+// Claude Code install, so the Node server registers it separately (runtime/claude-code.ts).
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
-import { query } from "@anthropic-ai/claude-agent-sdk";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { AI_PROVIDER_LABELS, type AIProviderId, type ProviderStatus } from "@postdaily/shared";
+import { AI_PROVIDER_LABELS, type AIProviderId, type ModelOption, type ProviderStatus } from "@postdaily/shared";
+import { env } from "../runtime/env";
 
 export interface CompleteArgs {
   system: string;
@@ -17,40 +16,17 @@ export interface CompleteArgs {
 
 export class AIError extends Error {}
 
-type Provider = (args: CompleteArgs) => Promise<string>;
-
-// --- Claude via your local Claude Code login (Claude Agent SDK) ---
-const claudeCode: Provider = async ({ system, prompt, model }) => {
-  // Drop API-key env vars so the SDK uses your Claude login rather than a key.
-  const { ANTHROPIC_API_KEY: _k, ANTHROPIC_AUTH_TOKEN: _t, ...env } = process.env;
-  let text = "";
-  for await (const msg of query({
-    prompt,
-    options: {
-      systemPrompt: system,
-      model,
-      maxTurns: 1,
-      tools: [],
-      settingSources: [],
-      persistSession: false,
-      env,
-    },
-  })) {
-    if (msg.type === "result") {
-      if (msg.subtype === "success") text = msg.result;
-      else throw new AIError(`Claude login provider failed (${msg.subtype}). Run \`claude\` and sign in, then retry.`);
-    }
-  }
-  if (!text) throw new AIError("Claude returned an empty response.");
-  return text;
-};
+export type Provider = (args: CompleteArgs) => Promise<string>;
+type StatusCheck = () => Promise<{ available: boolean; note: string }>;
 
 // --- Anthropic API key ---
-let anthropicClient: Anthropic | null = null;
+let anthropicClient: { key: string; client: Anthropic } | null = null;
 const anthropic: Provider = async ({ system, prompt, model, effort = "medium" }) => {
-  anthropicClient ??= new Anthropic();
+  const key = env("ANTHROPIC_API_KEY");
+  if (!key) throw new AIError("Set ANTHROPIC_API_KEY to use the Anthropic provider.");
+  if (anthropicClient?.key !== key) anthropicClient = { key, client: new Anthropic({ apiKey: key }) };
   try {
-    const res = await anthropicClient.beta.messages.create({
+    const res = await anthropicClient.client.beta.messages.create({
       model,
       max_tokens: 16000,
       system,
@@ -73,10 +49,12 @@ const anthropic: Provider = async ({ system, prompt, model, effort = "medium" })
 };
 
 // --- OpenAI ---
-let openaiClient: OpenAI | null = null;
+let openaiClient: { key: string; client: OpenAI } | null = null;
 const openai: Provider = async ({ system, prompt, model }) => {
-  openaiClient ??= new OpenAI();
-  const res = await openaiClient.chat.completions.create({
+  const key = env("OPENAI_API_KEY");
+  if (!key) throw new AIError("Set OPENAI_API_KEY to use the OpenAI provider.");
+  if (openaiClient?.key !== key) openaiClient = { key, client: new OpenAI({ apiKey: key }) };
+  const res = await openaiClient.client.chat.completions.create({
     model,
     messages: [
       { role: "system", content: system },
@@ -86,10 +64,115 @@ const openai: Provider = async ({ system, prompt, model }) => {
   return res.choices[0]?.message?.content ?? "";
 };
 
+// --- OpenRouter (OpenAI-compatible; many free models with a ":free" suffix) ---
+const OPENROUTER_URL = "https://openrouter.ai/api/v1";
+/**
+ * Free models that were fast and wrote well in a 3-draft test (Nov 2026): ~9 s, ~21 s, ~39 s.
+ * `openrouter/free` took ~111 s. Used as automatic fallbacks when a free model is busy.
+ */
+export const FAST_FREE_MODELS = [
+  "particle-ai/particle-1:free",
+  "nvidia/nemotron-3.5-super-vl:free",
+  "nvidia/nemotron-3-ultra-550b-a55b:free",
+];
+const OPENROUTER_TIMEOUT_MS = 90_000;
+
+/** Up to two fast free fallbacks that OpenRouter still lists, so a busy model doesn't stall you. */
+async function freeFallbacks(model: string) {
+  if (!model.endsWith(":free") && model !== "openrouter/free") return [];
+  try {
+    const free = new Set((await listOpenRouterModels()).filter((m) => m.free).map((m) => m.id));
+    return FAST_FREE_MODELS.filter((id) => id !== model && free.has(id)).slice(0, 2);
+  } catch {
+    return [];
+  }
+}
+
+let openrouterClient: { key: string; client: OpenAI } | null = null;
+const openrouter: Provider = async ({ system, prompt, model }) => {
+  const key = env("OPENROUTER_API_KEY");
+  if (!key) throw new AIError("Set OPENROUTER_API_KEY to use OpenRouter (free key at openrouter.ai/keys).");
+  if (openrouterClient?.key !== key)
+    openrouterClient = {
+      key,
+      client: new OpenAI({
+        apiKey: key,
+        baseURL: OPENROUTER_URL,
+        defaultHeaders: { "X-Title": "PostDaily" },
+        timeout: OPENROUTER_TIMEOUT_MS,
+        maxRetries: 0, // OpenRouter's own fallbacks handle busy models; retries would just double the wait
+      }),
+    };
+  const fallbacks = await freeFallbacks(model);
+  try {
+    const res = await openrouterClient.client.chat.completions.create({
+      model,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: prompt },
+      ],
+      // OpenRouter-specific options: try fallbacks if the model is busy, route to the fastest
+      // host, and keep "thinking" short on reasoning models.
+      ...({
+        ...(fallbacks.length ? { models: [model, ...fallbacks] } : {}),
+        provider: { sort: "throughput" },
+        reasoning: { effort: "low", exclude: true },
+      } as object),
+    });
+    const text = res.choices[0]?.message?.content ?? "";
+    if (!text) throw new AIError("The model returned an empty response. Free models are sometimes overloaded; try again or pick another.");
+    return text;
+  } catch (e) {
+    if (e instanceof OpenAI.APIConnectionTimeoutError)
+      throw new AIError(
+        `The model didn't answer within ${OPENROUTER_TIMEOUT_MS / 1000} seconds. Free models get busy; try again or pick a faster one in Settings.`,
+      );
+    if (e instanceof OpenAI.RateLimitError)
+      throw new AIError("OpenRouter rate limit hit. Free models have daily limits; try later or pick another model.");
+    if (e instanceof OpenAI.AuthenticationError) throw new AIError("OpenRouter API key is missing or invalid.");
+    if (e instanceof OpenAI.APIError) throw new AIError(`OpenRouter error ${e.status}: ${e.message}`);
+    throw e;
+  }
+};
+
+let openrouterModels: { at: number; list: ModelOption[] } | null = null;
+/** OpenRouter's text models, free ones first. Public endpoint, cached for an hour. */
+export async function listOpenRouterModels(): Promise<ModelOption[]> {
+  if (openrouterModels && Date.now() - openrouterModels.at < 3_600_000) return openrouterModels.list;
+  const res = await fetch(`${OPENROUTER_URL}/models`);
+  if (!res.ok) throw new AIError(`Couldn't load OpenRouter models (${res.status})`);
+  const { data } = (await res.json()) as {
+    data: {
+      id: string;
+      name: string;
+      context_length?: number;
+      pricing?: { prompt?: string; completion?: string };
+      architecture?: { output_modalities?: string[] };
+    }[];
+  };
+  const list = data
+    // Text-only output (excludes e.g. music models that also return text).
+    .filter((m) => {
+      const out = m.architecture?.output_modalities;
+      return !out || (out.length === 1 && out[0] === "text");
+    })
+    .map((m) => ({
+      id: m.id,
+      name: m.name,
+      contextLength: m.context_length ?? null,
+      free: Number(m.pricing?.prompt ?? 1) === 0 && Number(m.pricing?.completion ?? 1) === 0,
+    }))
+    .sort((a, b) => Number(b.free) - Number(a.free) || a.name.localeCompare(b.name));
+  openrouterModels = { at: Date.now(), list };
+  return list;
+}
+
 // --- Ollama ---
-const ollamaUrl = () => process.env.OLLAMA_URL || "http://localhost:11434";
+const ollamaUrl = () => env("OLLAMA_URL");
 const ollama: Provider = async ({ system, prompt, model }) => {
-  const res = await fetch(`${ollamaUrl()}/api/chat`, {
+  const url = ollamaUrl();
+  if (!url) throw new AIError("Set OLLAMA_URL to use Ollama.");
+  const res = await fetch(`${url}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -106,43 +189,57 @@ const ollama: Provider = async ({ system, prompt, model }) => {
   return data.message?.content ?? "";
 };
 
-const providers: Record<AIProviderId, Provider> = {
-  "claude-code": claudeCode,
-  anthropic,
-  openai,
-  ollama,
+const providers: Partial<Record<AIProviderId, Provider>> = { anthropic, openrouter, openai, ollama };
+
+const statusChecks: Record<AIProviderId, StatusCheck> = {
+  "claude-code": async () => ({ available: false, note: "Only available when running PostDaily on your Mac" }),
+  anthropic: async () =>
+    env("ANTHROPIC_API_KEY")
+      ? { available: true, note: "ANTHROPIC_API_KEY set" }
+      : { available: false, note: "Set ANTHROPIC_API_KEY" },
+  openrouter: async () =>
+    env("OPENROUTER_API_KEY")
+      ? { available: true, note: "OPENROUTER_API_KEY set" }
+      : { available: false, note: "Set OPENROUTER_API_KEY (free key at openrouter.ai/keys)" },
+  openai: async () =>
+    env("OPENAI_API_KEY") ? { available: true, note: "OPENAI_API_KEY set" } : { available: false, note: "Set OPENAI_API_KEY" },
+  ollama: async () => {
+    const url = ollamaUrl();
+    if (!url) return { available: false, note: "Set OLLAMA_URL" };
+    try {
+      const r = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(800) });
+      if (r.ok) return { available: true, note: `Running at ${url}` };
+    } catch {
+      /* not running */
+    }
+    return { available: false, note: `Not reachable at ${url}` };
+  },
 };
+
+/** Lets a runtime add a provider that only it supports (e.g. the local Claude login). */
+export function registerProvider(id: AIProviderId, provider: Provider, status: StatusCheck) {
+  providers[id] = provider;
+  statusChecks[id] = status;
+}
 
 export function complete(provider: AIProviderId, args: CompleteArgs) {
   const fn = providers[provider];
-  if (!fn) throw new AIError(`Unknown AI provider: ${provider}`);
+  if (!fn) {
+    throw new AIError(
+      provider === "claude-code"
+        ? "“Claude (my Claude login)” only works on the Mac version. Pick another AI provider in Settings."
+        : `Unknown AI provider: ${provider}`,
+    );
+  }
   return fn(args);
 }
 
 export async function providerStatuses(): Promise<ProviderStatus[]> {
-  const claudeLoggedIn =
-    fs.existsSync(path.join(os.homedir(), ".claude.json")) || fs.existsSync(path.join(os.homedir(), ".claude"));
-  let ollamaUp = false;
-  try {
-    const r = await fetch(`${ollamaUrl()}/api/tags`, { signal: AbortSignal.timeout(800) });
-    ollamaUp = r.ok;
-  } catch {
-    /* not running */
-  }
-  const s = (id: AIProviderId, available: boolean, note: string): ProviderStatus => ({
-    id,
-    label: AI_PROVIDER_LABELS[id],
-    available,
-    note,
-  });
-  return [
-    s(
-      "claude-code",
-      claudeLoggedIn,
-      claudeLoggedIn ? "Uses your local Claude Code sign-in" : "Run `claude` in a terminal and sign in first",
-    ),
-    s("anthropic", Boolean(process.env.ANTHROPIC_API_KEY), process.env.ANTHROPIC_API_KEY ? "ANTHROPIC_API_KEY set" : "Set ANTHROPIC_API_KEY in .env"),
-    s("openai", Boolean(process.env.OPENAI_API_KEY), process.env.OPENAI_API_KEY ? "OPENAI_API_KEY set" : "Set OPENAI_API_KEY in .env"),
-    s("ollama", ollamaUp, ollamaUp ? `Running at ${ollamaUrl()}` : `Not reachable at ${ollamaUrl()}`),
-  ];
+  return Promise.all(
+    (Object.keys(statusChecks) as AIProviderId[]).map(async (id) => ({
+      id,
+      label: AI_PROVIDER_LABELS[id],
+      ...(await statusChecks[id]()),
+    })),
+  );
 }

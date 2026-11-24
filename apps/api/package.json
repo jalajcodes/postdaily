@@ -4,9 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch --env-file-if-exists=../../.env src/index.ts",
-    "start": "tsx --env-file-if-exists=../../.env src/index.ts",
-    "typecheck": "tsc -p ."
+    "dev": "tsx watch --env-file-if-exists=../../.env src/node.ts",
+    "start": "tsx --env-file-if-exists=../../.env src/node.ts",
+    "typecheck": "tsc -p .",
+    "cf:dev": "npm run build -w @postdaily/web && wrangler d1 migrations apply postdaily --local && wrangler dev --test-scheduled",
+    "cf:migrate": "wrangler d1 migrations apply postdaily --remote",
+    "cf:deploy": "npm run build -w @postdaily/web && wrangler d1 migrations apply postdaily --remote && wrangler deploy"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.331",
@@ -19,6 +22,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261124.1",
     "@types/better-sqlite3": "^9.6.0",
     "@types/luxon": "^3.7.6",
     "@types/node": "^26.6.6",

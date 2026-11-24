@@ -1,0 +1,8 @@
+# Copy to apps/api/.dev.vars for `npm run cf:dev` (local Cloudflare testing). Never commit .dev.vars.
+LINKEDIN_CLIENT_ID=
+LINKEDIN_CLIENT_SECRET=
+ANTHROPIC_API_KEY=
+# Free models: https://openrouter.ai/keys
+OPENROUTER_API_KEY=
+# Optional: only these LinkedIn emails may sign in (comma-separated)
+ALLOWED_EMAILS=

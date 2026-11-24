@@ -1,11 +1,12 @@
 // Types shared by the API server, the web app and (later) the mobile app.
 
-export const AI_PROVIDERS = ["claude-code", "anthropic", "openai", "ollama"] as const;
+export const AI_PROVIDERS = ["claude-code", "anthropic", "openrouter", "openai", "ollama"] as const;
 export type AIProviderId = (typeof AI_PROVIDERS)[number];
 
 export const AI_PROVIDER_LABELS: Record<AIProviderId, string> = {
   "claude-code": "Claude (my Claude login)",
   anthropic: "Anthropic API key",
+  openrouter: "OpenRouter (free models available)",
   openai: "OpenAI API key",
   ollama: "Ollama (local)",
 };
@@ -13,9 +14,18 @@ export const AI_PROVIDER_LABELS: Record<AIProviderId, string> = {
 export const DEFAULT_MODELS: Record<AIProviderId, string> = {
   "claude-code": "claude-opus-5-5",
   anthropic: "claude-opus-5-5",
+  // Fastest free model with good writing in a Nov 2026 test (~9 s for 3 drafts).
+  openrouter: "particle-ai/particle-1:free",
   openai: "gpt-5",
   ollama: "llama3.1",
 };
+
+export interface ModelOption {
+  id: string;
+  name: string;
+  contextLength: number | null;
+  free: boolean;
+}
 
 export const POST_LENGTHS = ["short", "medium", "long"] as const;
 export type PostLength = (typeof POST_LENGTHS)[number];
@@ -55,7 +65,32 @@ export interface Settings {
   reminderTime: string; // "HH:MM" in user's timezone
   weeklyGoal: number;
   dailyIdeas: boolean;
+  /** Shift each scheduled post by a random amount within ±jitterMinutes. */
+  jitterEnabled: boolean;
+  jitterMinutes: number;
 }
+
+/**
+ * Posting-time presets. Times come from 2026 engagement studies:
+ * Buffer (4.8M posts) found weekday 3-8 PM strongest; Sprout Social found 11 AM-5 PM strongest
+ * (Tue-Thu); and twice-a-day posts should be ~7 hours apart so they don't compete for reach.
+ */
+export const POSTING_PRESETS = {
+  twice: {
+    label: "Twice a day",
+    description: "Weekdays at 10:00 and 17:00 (7 hours apart)",
+    slots: [1, 2, 3, 4, 5].flatMap((d) => [
+      { dayOfWeek: d, time: "10:00" },
+      { dayOfWeek: d, time: "17:00" },
+    ]),
+  },
+  once: {
+    label: "Once a day",
+    description: "Weekdays at 16:00",
+    slots: [1, 2, 3, 4, 5].map((d) => ({ dayOfWeek: d, time: "16:00" })),
+  },
+} as const;
+export type PostingPreset = keyof typeof POSTING_PRESETS;
 
 export interface Profile {
   niche: string;
@@ -81,7 +116,12 @@ export interface Post {
   id: string;
   content: string;
   status: PostStatus;
+  /** The slot/time you picked. */
   scheduledAt: string | null;
+  /** When it will actually go out (scheduledAt plus the random buffer). */
+  publishAt: string | null;
+  /** 0 = exact time; otherwise the random buffer (±minutes) applied. */
+  jitterMinutes: number;
   publishedAt: string | null;
   linkedinUrn: string | null;
   error: string | null;
