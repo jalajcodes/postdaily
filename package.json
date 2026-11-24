@@ -1,0 +1,21 @@
+{
+  "name": "postdaily",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,magenta \"npm run dev -w @postdaily/api\" \"npm run dev -w @postdaily/web\"",
+    "dev:api": "npm run dev -w @postdaily/api",
+    "dev:web": "npm run dev -w @postdaily/web",
+    "build": "npm run build -w @postdaily/web",
+    "start": "npm run start -w @postdaily/api",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.7",
+    "typescript": "^7.0.2"
+  }
+}
