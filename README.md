@@ -3,7 +3,7 @@
 [![CI](https://github.com/jalajcodes/postdaily/actions/workflows/ci.yml/badge.svg)](https://github.com/jalajcodes/postdaily/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A personal app that helps you post on LinkedIn every day, in your own voice. It is inspired by wiral.social. It runs free on Cloudflare (or on your Mac) and works as an installable phone app.
+A personal app that helps you post on LinkedIn every day, in your own voice. It runs free on Cloudflare (or on your Mac) and works as an installable phone app.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/jalajcodes/postdaily/tree/main/apps/api)
 
