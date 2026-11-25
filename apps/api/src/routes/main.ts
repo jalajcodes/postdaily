@@ -27,6 +27,7 @@ import {
   rewriteSlide,
 } from "../ai/writer";
 import { brandSchema, slideSchema } from "../lib/carousel";
+import { MAX_AUDIO_BYTES, transcribe, transcriptionAvailable } from "../ai/transcribe";
 import { computeStats, freeSlots, schedulePost } from "../lib/schedule";
 import { pushEnabled, saveSubscription, sendPush } from "../lib/push";
 import { env } from "../runtime/env";
@@ -142,6 +143,21 @@ main.post("/ai/carousel/slide", async (c) => {
     .object({ content: z.string().min(1), slide: slideSchema, instruction: z.string().max(300).optional() })
     .parse(await c.req.json());
   return c.json({ slide: await rewriteSlide(await getSettings(uid), await getVoiceProfile(uid), content, slide, instruction) });
+});
+
+// --- Voice notes: recorded audio in, text out (for browsers without live dictation) ---
+main.get("/ai/transcribe", (c) => c.json({ available: transcriptionAvailable() }));
+main.post("/ai/transcribe", async (c) => {
+  const type = c.req.header("Content-Type") ?? "";
+  if (!type.startsWith("audio/")) return c.json({ error: "Send the recording as audio" }, 415);
+  const declared = Number(c.req.header("Content-Length") ?? 0);
+  if (declared > MAX_AUDIO_BYTES) return c.json({ error: "That recording is too long. Keep voice notes under 5 minutes." }, 413);
+  const audio = new Uint8Array(await c.req.arrayBuffer());
+  if (audio.length > MAX_AUDIO_BYTES) return c.json({ error: "That recording is too long. Keep voice notes under 5 minutes." }, 413);
+  if (audio.length < 1000) return c.json({ error: "The recording was empty. Try again." }, 400);
+  const text = await transcribe(audio, type);
+  if (!text) return c.json({ error: "Didn't catch any words. Try again a little closer to the mic." }, 422);
+  return c.json({ text });
 });
 
 // Your LinkedIn photo, proxied so the browser can draw it on carousel slides (a cross-origin

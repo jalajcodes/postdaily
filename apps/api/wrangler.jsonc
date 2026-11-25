@@ -18,6 +18,9 @@
   // The scheduler: publish due posts, morning ideas, reminders. Once a minute.
   "triggers": { "crons": ["* * * * *"] },
 
+  // Workers AI: Whisper speech-to-text for voice notes (free daily allowance).
+  "ai": { "binding": "AI" },
+
   "d1_databases": [
     {
       "binding": "DB",

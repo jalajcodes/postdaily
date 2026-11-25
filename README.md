@@ -12,7 +12,7 @@ A personal app that helps you post on LinkedIn every day, in your own voice. It 
 | ![Today: streaks, ideas and what's next](docs/screenshots/today.png) | ![Editor: hook variants, carousel and LinkedIn preview](docs/screenshots/editor.png) | ![Plan my week: a draft for every free slot](docs/screenshots/plan.png) |
 
 - **AI writer:** you drop in a thought, a story or a link, and get 3 drafts (Story, Lesson and Opinion) in your voice.
-- **Voice notes:** tap the mic and ramble; the browser transcribes it and the drafts clean up the filler.
+- **Voice notes:** tap the mic and ramble; the drafts clean up the filler. Browsers with live dictation (Chrome, Edge, Safari) show the words as you speak. Where it doesn't work (Brave, Arc, Firefox, in-app browsers), PostDaily records the note and transcribes it with Whisper on Workers AI (free allowance: about 200 audio minutes a day; on the Mac server, set `OPENAI_API_KEY`).
 - **Plan my week:** set 2-5 content pillars, and one click writes a draft for every free posting slot in the next 7 days, rotating themes and formats. You review, edit, and schedule them in one go.
 - **Your style:** paste some of your past posts and it learns your style. You can edit the style guide, your topics and a "never say" list. Common AI clichés are always blocked.
 - **Idea bank:** 5 fresh ideas arrive every morning, based on your niche and what you've posted recently. You can also save your own ideas.

@@ -5,6 +5,7 @@ import { setEnv } from "./runtime/env";
 import { d1Db } from "./runtime/d1";
 import { runScheduledTick } from "./scheduler";
 import { createApp } from "./app";
+import { setAiBinding } from "./ai/transcribe";
 
 interface Env {
   DB: D1Database;
@@ -16,6 +17,7 @@ const app = createApp();
 function init(env: Env) {
   setEnv({ ...env, RUNTIME: "worker" });
   setDb(d1Db(env.DB));
+  setAiBinding(env.AI);
 }
 
 export default {

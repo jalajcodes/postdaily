@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookmarkPlus, Check, FileText, GalleryHorizontal, Mic, Sparkles, Square } from "lucide-react";
 import type { Draft, PostLength } from "@postdaily/shared";
 import { api } from "../lib/api";
-import { speechSupported, startDictation } from "../lib/speech";
+import { useVoiceNote } from "../lib/useVoiceNote";
 import { Button, Card, ErrorText, PageHeader, inputCls } from "../components/ui";
 
 export function WritePage() {
@@ -25,28 +25,9 @@ export function WritePage() {
 
   const len = length ?? settings.data?.defaultLength ?? "medium";
 
-  // Voice note: dictated text is appended to the input as you speak.
-  const [listening, setListening] = useState(false);
-  const [interim, setInterim] = useState("");
-  const [micError, setMicError] = useState<string | null>(null);
-  const stopRef = useRef<(() => void) | null>(null);
-  useEffect(() => () => stopRef.current?.(), []);
-  const toggleMic = () => {
-    if (listening) return stopRef.current?.();
-    setMicError(null);
-    setListening(true);
-    stopRef.current = startDictation(
-      (finalText, guess) => {
-        if (finalText) setInput((v) => (v && !/\s$/.test(v) ? `${v} ` : v) + finalText.trim());
-        setInterim(guess);
-      },
-      (err) => {
-        setListening(false);
-        setInterim("");
-        if (err) setMicError(err);
-      },
-    );
-  };
+  // Voice note: text is appended to the input (live as you speak, or after recording).
+  const voice = useVoiceNote((text) => setInput((v) => (v && !/\s$/.test(v) ? `${v} ` : v) + text));
+  const fmt = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
 
   const generate = useMutation({
     mutationFn: () => api.ai.drafts(input, len),
@@ -102,26 +83,39 @@ export function WritePage() {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && input.trim()) generate.mutate();
           }}
         />
-          {speechSupported() && (
+          {voice.supported && (
             <button
               type="button"
-              onClick={toggleMic}
+              onClick={voice.toggle}
+              disabled={voice.state === "transcribing"}
               className={`absolute right-2 bottom-3 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium shadow-sm ${
-                listening ? "animate-pulse bg-red-600 text-white" : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                voice.state === "listening" || voice.state === "recording"
+                  ? "animate-pulse bg-red-600 text-white"
+                  : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-60"
               }`}
-              aria-pressed={listening}
+              aria-pressed={voice.state === "listening" || voice.state === "recording"}
             >
-              {listening ? <Square className="size-3.5" /> : <Mic className="size-3.5" />}
-              {listening ? "Stop" : "Voice note"}
+              {voice.state === "listening" || voice.state === "recording" ? <Square className="size-3.5" /> : <Mic className="size-3.5" />}
+              {voice.state === "listening"
+                ? "Stop"
+                : voice.state === "recording"
+                  ? `Stop · ${fmt(voice.seconds)}`
+                  : voice.state === "transcribing"
+                    ? "Turning it into text…"
+                    : "Voice note"}
             </button>
           )}
         </div>
-        {(listening || interim) && (
+        {voice.notice && <p className="mt-2 text-sm text-slate-600">{voice.notice}</p>}
+        {(voice.state === "listening" || voice.interim) && (
           <p className="mt-2 text-sm text-slate-500">
-            {interim ? <i>{interim}</i> : "Listening… just ramble. Filler words are fine, the drafts clean them up."}
+            {voice.interim ? <i>{voice.interim}</i> : "Listening… just ramble. Filler words are fine, the drafts clean them up."}
           </p>
         )}
-        {micError && <p className="mt-2 text-sm text-amber-700">{micError}</p>}
+        {voice.state === "recording" && (
+          <p className="mt-2 text-sm text-slate-500">Recording… just ramble, then tap Stop. Filler words are fine, the drafts clean them up.</p>
+        )}
+        {voice.error && <p className="mt-2 text-sm text-amber-700">{voice.error}</p>}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex rounded-lg border border-slate-200 p-0.5 text-sm">
             {(["short", "medium", "long"] as const).map((l) => (

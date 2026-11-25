@@ -100,6 +100,21 @@ export function createClient(opts: ClientOptions) {
       rewrite: (content: string, action: RewriteAction, instruction?: string) =>
         req<{ content: string }>("POST", "/ai/rewrite", { content, action, instruction }),
       hooks: (content: string) => req<{ hooks: string[] }>("POST", "/ai/hooks", { content }),
+      /** Whether the server can turn recorded voice notes into text. */
+      transcribeAvailable: () => req<{ available: boolean }>("GET", "/ai/transcribe"),
+      /** Recorded audio (webm/ogg/mp4) -> text. */
+      transcribe: async (audio: Blob) => {
+        const token = await opts.getToken();
+        const res = await fetch(`${opts.baseUrl}/api/ai/transcribe`, {
+          method: "POST",
+          headers: { "Content-Type": audio.type || "audio/webm", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: audio,
+        });
+        if (res.status === 401) opts.onUnauthorized?.();
+        const data = (await res.json().catch(() => null)) as { text?: string; error?: string } | null;
+        if (!res.ok) throw new ApiError(res.status, data?.error ?? res.statusText);
+        return { text: data?.text ?? "" };
+      },
       carousel: (content: string) => req<Carousel>("POST", "/ai/carousel", { content }),
       /** 3 alternative cover headlines. */
       coverHeadlines: (content: string, current: string) =>
