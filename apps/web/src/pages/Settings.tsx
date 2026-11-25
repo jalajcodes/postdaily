@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellRing, CheckCircle2, CircleAlert, Smartphone } from "lucide-react";
+import { BellRing, CheckCircle2, CircleAlert, Orbit, Smartphone } from "lucide-react";
 import {
   ACCENT_PRESETS,
   CAROUSEL_FONTS,
@@ -14,6 +14,7 @@ import {
   type Settings,
 } from "@postdaily/shared";
 import { prepareLogo } from "../lib/carousel";
+import { applyFuture } from "../future/theme";
 import { api } from "../lib/api";
 import { currentSubscription, disablePush, enablePush, isInstalled, isIos, pushSupported } from "../lib/push";
 import { Button, Card, ErrorText, Label, LinkedinIcon, PageHeader, SaveBar, Spinner, inputBaseCls, inputCls } from "../components/ui";
@@ -165,6 +166,8 @@ export function SettingsPage() {
               </p>
             )}
           </Card>
+
+          <FuturisticCard />
 
           <PushCard />
 
@@ -409,6 +412,46 @@ function BrandCard({ brand, onChange }: { brand: CarouselBrand; onChange: (b: Ca
           </div>
         </div>
       </div>
+    </Card>
+  );
+}
+
+/** Futuristic look. Saved and applied immediately (no need to press Save). */
+function FuturisticCard() {
+  const qc = useQueryClient();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings.get });
+  const on = !!settings.data?.futuristic;
+  const toggle = useMutation({
+    mutationFn: (futuristic: boolean) => api.settings.update({ futuristic }),
+    onMutate: (futuristic) => applyFuture(futuristic),
+    onSuccess: (data) => qc.setQueryData(["settings"], data),
+    onError: () => applyFuture(on),
+  });
+  return (
+    <Card className="space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="flex items-center gap-2 font-medium">
+            <Orbit className="size-4" /> Futuristic mode <span className="rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-700">Beta</span>
+          </h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Dark neon theme with a live 3D aurora background, glass cards, animated transitions and a little celebration when
+            you queue or post.
+          </p>
+        </div>
+        <button
+          role="switch"
+          aria-checked={on}
+          aria-label="Futuristic mode"
+          disabled={toggle.isPending || !settings.data}
+          onClick={() => toggle.mutate(!on)}
+          className={`relative mt-1 h-7 w-12 shrink-0 rounded-full transition-colors ${on ? "bg-brand-500" : "bg-slate-200"}`}
+        >
+          <span className={`absolute top-1 left-1 size-5 rounded-full bg-white shadow transition-transform ${on ? "translate-x-5" : ""}`} style={on ? { background: "#fff" } : undefined} />
+        </button>
+      </div>
+      <p className="text-xs text-slate-500">Uses more battery on phones. Animations stay off if your device is set to reduce motion.</p>
+      <ErrorText error={toggle.error} />
     </Card>
   );
 }

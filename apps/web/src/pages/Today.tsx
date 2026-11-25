@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, CalendarCheck, CheckCircle2, Flame, Lightbulb, PenLine, Trophy } from "lucide-react";
 import { api, formatWhen } from "../lib/api";
 import { Button, Card, PageHeader, Spinner } from "../components/ui";
+import { useCountUp } from "../future/useCountUp";
 
 export function TodayPage() {
   const navigate = useNavigate();
@@ -57,7 +58,7 @@ export function TodayPage() {
             <Flame className="size-4 shrink-0 text-orange-500" /> <span className="sm:hidden">Streak</span>
             <span className="hidden sm:inline">Daily streak</span>
           </div>
-          <div className="mt-1 text-2xl font-semibold sm:mt-2 sm:text-3xl">{s.dailyStreak}</div>
+          <div className="mt-1 text-2xl font-semibold sm:mt-2 sm:text-3xl"><Count n={s.dailyStreak} /></div>
           <div className="text-xs text-slate-500">{s.dailyStreak === 1 ? "day" : "days"}<span className="hidden sm:inline"> in a row</span></div>
         </Card>
         <Card className="p-3 md:p-5">
@@ -65,7 +66,7 @@ export function TodayPage() {
             <CalendarCheck className="size-4 shrink-0 text-brand-500" /> This week
           </div>
           <div className="mt-1 text-2xl font-semibold sm:mt-2 sm:text-3xl">
-            {s.thisWeek}
+            <Count n={s.thisWeek} />
             <span className="text-base text-slate-400 sm:text-lg">/{s.weeklyGoal}</span>
           </div>
           <div className="mt-1.5 h-1.5 rounded-full bg-slate-100 sm:mt-2">
@@ -80,7 +81,7 @@ export function TodayPage() {
             <Trophy className="size-4 shrink-0 text-amber-500" /> <span className="sm:hidden">Weeks</span>
             <span className="hidden sm:inline">Weekly streak</span>
           </div>
-          <div className="mt-1 text-2xl font-semibold sm:mt-2 sm:text-3xl">{s.weeklyStreak}</div>
+          <div className="mt-1 text-2xl font-semibold sm:mt-2 sm:text-3xl"><Count n={s.weeklyStreak} /></div>
           <div className="text-xs text-slate-500">
             <span className="sm:hidden">on goal</span>
             <span className="hidden sm:inline">weeks hitting your goal · {s.totalPublished} posts total</span>
@@ -192,4 +193,9 @@ function LinkedInBanner({ expiresAt }: { expiresAt: string | null | undefined })
       <ArrowRight className="size-4 shrink-0" />
     </Link>
   );
+}
+
+/** A number that counts up in futuristic mode. */
+function Count({ n }: { n: number }) {
+  return <>{useCountUp(n)}</>;
 }

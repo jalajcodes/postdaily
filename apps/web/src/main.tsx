@@ -18,8 +18,10 @@ import "@fontsource/playfair-display/600.css";
 import "@fontsource/playfair-display/700.css";
 import "@fontsource/playfair-display/600-italic.css";
 import "./index.css";
+import "./future/future.css";
 import { tokenStore } from "./lib/api";
 import { registerServiceWorker } from "./lib/push";
+import { applySavedFuture } from "./future/theme";
 import { Layout } from "./components/Layout";
 import { LoginPage, AuthCallbackPage } from "./pages/Login";
 import { TodayPage } from "./pages/Today";
@@ -41,6 +43,7 @@ function RequireAuth({ children }: { children: ReactNode }) {
 }
 
 registerServiceWorker();
+applySavedFuture();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

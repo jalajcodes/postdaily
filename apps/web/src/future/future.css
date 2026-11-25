@@ -1,0 +1,240 @@
+/* Futuristic look. Everything here applies only when <html data-theme="future">.
+   Tailwind v4 compiles colors to CSS variables, so remapping the palette restyles the whole app;
+   a few utilities that bake in a color (opacity variants) are overridden directly. */
+
+:root[data-theme="future"] {
+  color-scheme: dark;
+  --color-white: rgb(14 18 38 / 0.62);
+  --color-slate-50: #050712;
+  --color-slate-100: rgb(148 163 220 / 0.1);
+  --color-slate-200: rgb(148 163 220 / 0.17);
+  --color-slate-300: rgb(148 163 220 / 0.32);
+  --color-slate-400: #7d8bb0;
+  --color-slate-500: #98a5c8;
+  --color-slate-600: #b6c1e0;
+  --color-slate-700: #cfd8f2;
+  --color-slate-800: #e3e9ff;
+  --color-slate-900: #f4f7ff;
+  --color-brand-50: rgb(34 211 238 / 0.1);
+  --color-brand-100: rgb(34 211 238 / 0.24);
+  --color-brand-500: #38bdf8;
+  --color-brand-600: #67e8f9;
+  --color-brand-700: #a5f3fc;
+  --color-amber-50: rgb(245 158 11 / 0.12);
+  --color-amber-200: rgb(245 158 11 / 0.3);
+  --color-amber-300: rgb(245 158 11 / 0.45);
+  --color-amber-700: #fcd34d;
+  --color-amber-800: #fde68a;
+  --color-amber-900: #fef3c7;
+  --color-red-50: rgb(244 63 94 / 0.12);
+  --color-red-200: rgb(244 63 94 / 0.3);
+  --color-red-600: #fb7185;
+  --color-red-700: #fda4af;
+  --color-red-800: #fecdd3;
+  --color-green-50: rgb(34 197 94 / 0.12);
+  --color-green-600: #4ade80;
+  --color-green-700: #86efac;
+  --color-orange-50: rgb(249 115 22 / 0.14);
+  --color-orange-800: #fdba74;
+  --color-violet-50: rgb(139 92 246 / 0.16);
+  --color-violet-700: #c4b5fd;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+:root[data-theme="future"] body {
+  background: #050712;
+  color: #e3e9ff;
+}
+
+/* Text on colored buttons stays white. */
+:root[data-theme="future"] .text-white {
+  color: #fff;
+}
+
+/* Headings get the techy face. */
+:root[data-theme="future"] h1,
+:root[data-theme="future"] h2 {
+  font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
+  letter-spacing: -0.01em;
+}
+:root[data-theme="future"] main h1 {
+  background: linear-gradient(90deg, #e0f2fe, #a5f3fc 35%, #c4b5fd 75%, #f0abfc);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Bars and overlays that use opacity variants. */
+:root[data-theme="future"] .bg-white\/95,
+:root[data-theme="future"] .bg-white\/90 {
+  background-color: rgb(6 9 22 / 0.72);
+}
+:root[data-theme="future"] .bg-slate-900\/50,
+:root[data-theme="future"] .bg-slate-900\/40 {
+  background-color: rgb(2 4 12 / 0.72);
+}
+
+/* Selected toggles (Short/Medium/Long, Desktop/Phone, idea filters). */
+:root[data-theme="future"] .bg-slate-900 {
+  background: linear-gradient(135deg, #22d3ee, #6366f1 60%, #a855f7);
+  color: #fff;
+  box-shadow: 0 0 18px rgb(56 189 248 / 0.35);
+}
+
+/* Primary buttons: neon gradient with a glow. */
+:root[data-theme="future"] .bg-brand-500 {
+  background: linear-gradient(135deg, #06b6d4, #6366f1 55%, #a855f7);
+  box-shadow:
+    0 0 0 1px rgb(165 243 252 / 0.25) inset,
+    0 6px 24px -6px rgb(99 102 241 / 0.65);
+}
+:root[data-theme="future"] button.bg-brand-500:hover:not(:disabled) {
+  filter: brightness(1.12) saturate(1.1);
+  box-shadow:
+    0 0 0 1px rgb(165 243 252 / 0.4) inset,
+    0 8px 32px -4px rgb(56 189 248 / 0.7);
+}
+:root[data-theme="future"] .bg-brand-500\/50,
+:root[data-theme="future"] button.bg-brand-500:disabled {
+  opacity: 0.45;
+  box-shadow: none;
+}
+
+/* Glass cards with a light that follows the pointer (--mx / --my set in JS). */
+:root[data-theme="future"] .card {
+  position: relative;
+  background:
+    radial-gradient(420px circle at var(--mx, -999px) var(--my, -999px), rgb(56 189 248 / 0.1), transparent 60%),
+    linear-gradient(160deg, rgb(22 28 58 / 0.66), rgb(10 13 30 / 0.58));
+  border-color: rgb(148 163 220 / 0.16);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.05) inset,
+    0 20px 40px -24px rgb(0 0 0 / 0.8);
+}
+:root[data-theme="future"] .card::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: radial-gradient(260px circle at var(--mx, -999px) var(--my, -999px), rgb(103 232 249 / 0.8), rgb(167 139 250 / 0.35) 40%, transparent 70%);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Cards rise in, one after another. */
+@keyframes future-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+:root[data-theme="future"] main .card {
+  animation: future-rise 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+:root[data-theme="future"] main :nth-child(2) > .card,
+:root[data-theme="future"] main .card:nth-child(2) {
+  animation-delay: 0.06s;
+}
+:root[data-theme="future"] main .card:nth-child(3) {
+  animation-delay: 0.12s;
+}
+:root[data-theme="future"] main .card:nth-child(4) {
+  animation-delay: 0.18s;
+}
+:root[data-theme="future"] main .card:nth-child(n + 5) {
+  animation-delay: 0.24s;
+}
+
+/* Inputs: dark glass with a cyan focus glow. */
+:root[data-theme="future"] input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),
+:root[data-theme="future"] select,
+:root[data-theme="future"] textarea {
+  background-color: rgb(8 11 26 / 0.6);
+}
+:root[data-theme="future"] input:focus,
+:root[data-theme="future"] select:focus,
+:root[data-theme="future"] textarea:focus {
+  box-shadow: 0 0 0 3px rgb(34 211 238 / 0.18), 0 0 24px -6px rgb(34 211 238 / 0.5);
+}
+:root[data-theme="future"] input[type="checkbox"],
+:root[data-theme="future"] input[type="radio"] {
+  accent-color: #22d3ee;
+}
+
+/* Glowing streak + heatmap. */
+:root[data-theme="future"] .bg-brand-600,
+:root[data-theme="future"] .bg-brand-500\/60 {
+  box-shadow: 0 0 10px rgb(56 189 248 / 0.55);
+}
+:root[data-theme="future"] .bg-brand-500\/60 {
+  background-color: rgb(56 189 248 / 0.55);
+}
+
+/* Active nav item: neon pill. */
+:root[data-theme="future"] nav a[aria-current="page"] {
+  text-shadow: 0 0 12px rgb(103 232 249 / 0.6);
+}
+:root[data-theme="future"] aside nav a[aria-current="page"] {
+  box-shadow: inset 2px 0 0 #67e8f9, 0 0 24px -8px rgb(56 189 248 / 0.6);
+}
+
+/* Scrollbars. */
+:root[data-theme="future"] ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+:root[data-theme="future"] ::-webkit-scrollbar-thumb {
+  background: rgb(148 163 220 / 0.22);
+  border-radius: 99px;
+}
+:root[data-theme="future"] ::selection {
+  background: rgb(34 211 238 / 0.35);
+}
+
+/* The LinkedIn preview keeps LinkedIn's real (light) look. */
+:root[data-theme="future"] .keep-light {
+  color-scheme: light;
+  --color-white: #fff;
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f1f5f9;
+  --color-slate-200: #e2e8f0;
+  --color-slate-300: #cbd5e1;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-slate-700: #334155;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #0f172a;
+  --color-brand-50: #eef5fc;
+  --color-brand-100: #d6e7f8;
+  --color-brand-500: #0a66c2;
+  --color-brand-600: #0958a8;
+  --color-brand-700: #074a8d;
+  --color-amber-50: #fffbeb;
+  --color-amber-300: #fcd34d;
+  --color-amber-800: #92400e;
+  color: #0f172a;
+}
+:root[data-theme="future"] .keep-light .bg-slate-900 {
+  background: #0f172a;
+  box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="future"] main .card {
+    animation: none;
+  }
+}

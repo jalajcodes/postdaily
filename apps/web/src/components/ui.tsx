@@ -31,7 +31,7 @@ export function Button({
 }
 
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`rounded-xl border border-slate-200 bg-white p-4 md:p-5 ${className}`}>{children}</div>;
+  return <div className={`card rounded-xl border border-slate-200 bg-white p-4 md:p-5 ${className}`}>{children}</div>;
 }
 
 export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: ReactNode }) {

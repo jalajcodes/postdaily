@@ -60,7 +60,7 @@ export function LinkedInPreview({
         </div>
       </div>
 
-      <div className={`mx-auto rounded-lg border border-slate-200 bg-white shadow-sm ${device === "mobile" ? "max-w-[340px]" : ""}`}>
+      <div className={`keep-light mx-auto rounded-lg border border-slate-200 bg-white shadow-sm ${device === "mobile" ? "max-w-[340px]" : ""}`}>
         <div className="flex items-center gap-2.5 p-3">
           {avatar("size-11")}
           <div className="min-w-0">

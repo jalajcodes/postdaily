@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarCheck, CalendarRange, Pencil, Sparkles, Trash2, X } from "lucide-react";
 import type { PlannedPost } from "@postdaily/shared";
 import { api, formatWhen } from "../lib/api";
+import { ThinkingNote } from "../components/Thinking";
+import { celebrate } from "../future/celebrate";
 import { Button, Card, ErrorText, Label, PageHeader, Spinner, inputCls } from "../components/ui";
 
 const PILLAR_EXAMPLES = ["Lessons from building my product", "Hiring and team", "Behind the scenes", "Opinions on my industry"];
@@ -41,6 +43,7 @@ export function PlanPage() {
     mutationFn: () =>
       api.plan.schedule(items.filter((i) => selected.has(i.post.id)).map((i) => ({ postId: i.post.id, scheduledAt: i.slot }))),
     onSuccess: (r) => {
+      if (r.posts.length) celebrate();
       setScheduledIds(new Set([...scheduledIds, ...r.posts.map((p) => p.id)]));
       setSelected(new Set());
       qc.invalidateQueries({ queryKey: ["posts"] });
@@ -155,9 +158,7 @@ export function PlanPage() {
           <Button className="w-full" onClick={() => generate.mutate()} loading={generate.isPending} disabled={!freeCount || !usable.length}>
             <Sparkles className="size-4" /> Write {freeCount || ""} post{freeCount === 1 ? "" : "s"}
           </Button>
-          {generate.isPending && (
-            <p className="text-center text-xs text-slate-500">Writing {freeCount} posts in your voice… this can take a minute or two.</p>
-          )}
+          {generate.isPending && <ThinkingNote label={`Writing ${freeCount} posts in your voice… this can take a minute or two.`} />}
           <p className="text-xs text-slate-500">
             Posts are saved as drafts. Nothing is scheduled until you review them and click Schedule.
           </p>

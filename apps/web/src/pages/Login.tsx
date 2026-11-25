@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api, tokenStore } from "../lib/api";
 import { Button, ErrorText, LinkedinIcon as Linkedin } from "../components/ui";
+import { Logo } from "../components/Logo";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -27,7 +28,7 @@ export function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-brand-50 to-slate-50 px-4">
       <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
         <div className="mb-6 flex items-center gap-2 text-xl font-semibold">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-brand-500 text-white">P</span>
+          <Logo className="size-10" />
           PostDaily
         </div>
         <h1 className="text-lg font-semibold">Post on LinkedIn every day, in your own voice.</h1>

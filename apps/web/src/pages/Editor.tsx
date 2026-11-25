@@ -32,6 +32,8 @@ import { LinkedInPreview } from "../components/LinkedInPreview";
 import { prepareImage, quoteCard } from "../lib/image";
 import { slideThumbnails } from "../lib/carousel";
 import { useCarouselAssets } from "../lib/useCarousel";
+import { celebrate } from "../future/celebrate";
+import { ThinkingNote } from "../components/Thinking";
 import { CarouselEditor } from "../components/CarouselEditor";
 import { Button, Card, ErrorText, Spinner, inputCls } from "../components/ui";
 
@@ -131,13 +133,14 @@ export function EditorPage() {
     onSuccess: refresh,
   });
 
-  const queue = useMutation({ mutationFn: async () => (await saveFirst(), api.posts.queue(id!, { jitter })), onSuccess: refresh });
+  const cheer = () => (celebrate(), refresh());
+  const queue = useMutation({ mutationFn: async () => (await saveFirst(), api.posts.queue(id!, { jitter })), onSuccess: cheer });
   const schedule = useMutation({
     mutationFn: async () => (await saveFirst(), api.posts.update(id!, { scheduledAt: new Date(when).toISOString(), jitter })),
-    onSuccess: refresh,
+    onSuccess: cheer,
   });
   const unschedule = useMutation({ mutationFn: () => api.posts.unschedule(id!), onSuccess: refresh });
-  const publish = useMutation({ mutationFn: async () => (await saveFirst(), api.posts.publish(id!)), onSuccess: refresh });
+  const publish = useMutation({ mutationFn: async () => (await saveFirst(), api.posts.publish(id!)), onSuccess: cheer });
   const remove = useMutation({
     mutationFn: () => api.posts.remove(id!),
     onSuccess: () => {
@@ -146,7 +149,7 @@ export function EditorPage() {
     },
   });
 
-  const retry = useMutation({ mutationFn: () => api.posts.retry(id!), onSuccess: refresh });
+  const retry = useMutation({ mutationFn: () => api.posts.retry(id!), onSuccess: cheer });
   const saveComment = useMutation({
     mutationFn: (text: string) => api.posts.update(id!, { firstComment: text }),
     onSuccess: refresh,
@@ -491,7 +494,7 @@ export function EditorPage() {
                 </Button>
               </div>
             )}
-            {outline.isPending && <p className="mt-2 text-xs text-slate-500">Outlining slides from your post…</p>}
+            {outline.isPending && <ThinkingNote label="Outlining slides from your post…" />}
             <div className="mt-2">
               <ErrorText error={imageError ?? setImage.error ?? removeImage.error ?? outline.error ?? setDocument.error} />
             </div>

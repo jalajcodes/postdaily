@@ -1,3 +1,5 @@
+<p align="center"><img src="apps/web/public/logo.svg" width="96" height="96" alt="PostDaily logo"></p>
+
 # PostDaily
 
 [![CI](https://github.com/jalajcodes/postdaily/actions/workflows/ci.yml/badge.svg)](https://github.com/jalajcodes/postdaily/actions/workflows/ci.yml)

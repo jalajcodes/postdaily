@@ -73,6 +73,8 @@ export interface Settings {
   engagementNudge: boolean;
   /** Defaults and identity used on every carousel. */
   carouselBrand: CarouselBrand;
+  /** Futuristic look: dark neon theme, 3D background and animations. */
+  futuristic: boolean;
 }
 
 /**

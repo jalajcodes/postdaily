@@ -1,8 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, CalendarClock, CalendarRange, Menu, FileText, Flame, Lightbulb, LogOut, PenLine, Settings, Sparkles, Sun } from "lucide-react";
 import { api, tokenStore } from "../lib/api";
+import { Logo } from "./Logo";
+import { applyFuture } from "../future/theme";
+
+// Futuristic mode extras, only downloaded when the mode is on.
+const Backdrop = lazy(() => import("../future/Backdrop"));
+const Transitions = lazy(() => import("../future/Transitions"));
 
 const nav = [
   { to: "/", label: "Today", icon: Sun, end: true },
@@ -27,6 +33,11 @@ export function Layout() {
   });
   const [open, setOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings.get });
+  const future = !!settings.data?.futuristic;
+  useEffect(() => {
+    if (settings.data) applyFuture(settings.data.futuristic);
+  }, [settings.data]);
   const location = useLocation();
   // Close menus when you navigate.
   useEffect(() => {
@@ -113,10 +124,16 @@ export function Layout() {
 
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
+      {future && (
+        <Suspense fallback={null}>
+          <Backdrop />
+        </Suspense>
+      )}
+
       {/* Phone header */}
       <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white/95 px-4 pt-[env(safe-area-inset-top)] backdrop-blur md:hidden">
         <div className="flex h-14 items-center gap-2 text-lg font-semibold">
-          <span className="flex size-7 items-center justify-center rounded-lg bg-brand-500 text-sm text-white">P</span>
+          <Logo className="size-8" />
           PostDaily
         </div>
         <div className="flex items-center gap-1">
@@ -129,7 +146,7 @@ export function Layout() {
       <aside className="hidden shrink-0 flex-col border-r border-slate-200 bg-white md:sticky md:top-0 md:flex md:h-screen md:w-60">
         <div className="flex items-center justify-between px-5 py-4">
           <div className="flex items-center gap-2 text-lg font-semibold">
-            <span className="flex size-7 items-center justify-center rounded-lg bg-brand-500 text-sm text-white">P</span>
+            <Logo className="size-8" />
             PostDaily
           </div>
           {bell}
@@ -169,7 +186,13 @@ export function Layout() {
 
       <main className="min-w-0 flex-1 px-4 pt-5 pb-[calc(6rem+env(safe-area-inset-bottom))] md:px-10 md:py-8">
         <div className="mx-auto max-w-5xl">
-          <Outlet />
+          {future ? (
+            <Suspense fallback={<Outlet />}>
+              <Transitions />
+            </Suspense>
+          ) : (
+            <Outlet />
+          )}
         </div>
       </main>
 

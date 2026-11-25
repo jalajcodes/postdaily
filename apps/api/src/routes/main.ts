@@ -59,6 +59,7 @@ main.put("/settings", async (c) => {
       jitterMinutes: z.number().int().min(1).max(30),
       engagementNudge: z.boolean(),
       carouselBrand: brandSchema,
+      futuristic: z.boolean(),
     })
     .partial()
     .parse(await c.req.json());

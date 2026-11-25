@@ -94,6 +94,7 @@ export async function getSettings(userId: string): Promise<Settings> {
     jitterMinutes: r.jitter_minutes,
     engagementNudge: Boolean(r.engagement_nudge ?? 1),
     carouselBrand: { ...DEFAULT_CAROUSEL_BRAND, ...JSON.parse(r.carousel_brand || "{}") },
+    futuristic: Boolean(r.futuristic),
   };
 }
 
@@ -110,6 +111,7 @@ const SETTINGS_COLUMNS: Record<keyof Settings, string> = {
   jitterMinutes: "jitter_minutes",
   engagementNudge: "engagement_nudge",
   carouselBrand: "carousel_brand",
+  futuristic: "futuristic",
 };
 
 export async function updateSettings(userId: string, s: Partial<Settings>) {

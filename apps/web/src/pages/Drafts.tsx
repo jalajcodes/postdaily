@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarPlus, PenLine, Search, Trash2 } from "lucide-react";
 import { api, formatWhen } from "../lib/api";
+import { celebrate } from "../future/celebrate";
 import { Button, Card, ErrorText, PageHeader, Spinner, inputCls } from "../components/ui";
 
 export function DraftsPage() {
@@ -16,7 +17,7 @@ export function DraftsPage() {
     qc.invalidateQueries({ queryKey: ["stats"] });
   };
 
-  const queue = useMutation({ mutationFn: (id: string) => api.posts.queue(id), onSuccess: refresh });
+  const queue = useMutation({ mutationFn: (id: string) => api.posts.queue(id), onSuccess: () => (celebrate(), refresh()) });
   const remove = useMutation({ mutationFn: (id: string) => api.posts.remove(id), onSuccess: refresh });
 
   const list = (drafts.data ?? []).filter((p) => p.content.toLowerCase().includes(q.trim().toLowerCase()));

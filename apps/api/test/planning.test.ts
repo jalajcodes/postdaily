@@ -210,4 +210,6 @@ test("engagement nudge setting round-trips", async () => {
   assert.equal((await call("GET", "/settings")).body.engagementNudge, true);
   const r = await call("PUT", "/settings", { engagementNudge: false });
   assert.equal(r.body.engagementNudge, false);
+  assert.equal(r.body.futuristic, false, "futuristic look is off by default");
+  assert.equal((await call("PUT", "/settings", { futuristic: true })).body.futuristic, true);
 });

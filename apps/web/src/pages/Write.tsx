@@ -5,6 +5,7 @@ import { BookmarkPlus, Check, FileText, GalleryHorizontal, Mic, Sparkles, Square
 import type { Draft, PostLength } from "@postdaily/shared";
 import { api } from "../lib/api";
 import { useVoiceNote } from "../lib/useVoiceNote";
+import { ThinkingNote } from "../components/Thinking";
 import { Button, Card, ErrorText, PageHeader, inputCls } from "../components/ui";
 
 export function WritePage() {
@@ -153,10 +154,8 @@ export function WritePage() {
         </div>
       </Card>
 
-      {carousel.isPending && <p className="mt-6 text-center text-sm text-slate-500">Outlining your carousel and writing a caption…</p>}
-      {generate.isPending && (
-        <p className="mt-6 text-center text-sm text-slate-500">Writing three takes in your voice… this can take up to a minute.</p>
-      )}
+      {carousel.isPending && <ThinkingNote label="Outlining your carousel and writing a caption…" />}
+      {generate.isPending && <ThinkingNote label="Writing three takes in your voice… this can take up to a minute." />}
 
       {drafts.length > 0 && (
         <>
