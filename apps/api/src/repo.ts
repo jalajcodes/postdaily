@@ -1,5 +1,5 @@
 // Row <-> API object mapping and small query helpers.
-import { DEFAULT_MODELS, type AIProviderId, type AppNotification, type Idea, type Post, type Profile, type Settings, type Slot, type User } from "@postdaily/shared";
+import { DEFAULT_CAROUSEL_BRAND, DEFAULT_MODELS, type AIProviderId, type AppNotification, type Idea, type Post, type Profile, type Settings, type Slot, type User } from "@postdaily/shared";
 import { db, newId, nowIso, type Statement } from "./db";
 import { env } from "./runtime/env";
 import { sendPush } from "./lib/push";
@@ -34,6 +34,7 @@ export const toPost = (r: Row): Post => ({
   hasDocument: Boolean(r.has_image) && r.media_type === "document",
   documentTitle: r.document_title ?? null,
   carouselSlides: r.carousel_slides ? JSON.parse(r.carousel_slides) : null,
+  carouselDesign: r.carousel_design ? JSON.parse(r.carousel_design) : null,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 });
@@ -92,6 +93,7 @@ export async function getSettings(userId: string): Promise<Settings> {
     jitterEnabled: Boolean(r.jitter_enabled),
     jitterMinutes: r.jitter_minutes,
     engagementNudge: Boolean(r.engagement_nudge ?? 1),
+    carouselBrand: { ...DEFAULT_CAROUSEL_BRAND, ...JSON.parse(r.carousel_brand || "{}") },
   };
 }
 
@@ -107,6 +109,7 @@ const SETTINGS_COLUMNS: Record<keyof Settings, string> = {
   jitterEnabled: "jitter_enabled",
   jitterMinutes: "jitter_minutes",
   engagementNudge: "engagement_nudge",
+  carouselBrand: "carousel_brand",
 };
 
 export async function updateSettings(userId: string, s: Partial<Settings>) {
@@ -116,7 +119,7 @@ export async function updateSettings(userId: string, s: Partial<Settings>) {
     if (!col || v === undefined) continue;
     stmts.push({
       sql: `UPDATE settings SET ${col} = ? WHERE user_id = ?`,
-      params: [typeof v === "boolean" ? Number(v) : (v as string | number), userId],
+      params: [typeof v === "boolean" ? Number(v) : typeof v === "object" ? JSON.stringify(v) : (v as string | number), userId],
     });
   }
   await db.batch(stmts);

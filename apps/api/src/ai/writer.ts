@@ -1,6 +1,7 @@
 // Prompt building and the AI features: drafts, rewrites, ideas, style analysis.
 import { z } from "zod";
-import type { Carousel, Draft, PostLength, Profile, RewriteAction, Settings } from "@postdaily/shared";
+import type { Carousel, CarouselSlide, Draft, PostLength, Profile, RewriteAction, Settings } from "@postdaily/shared";
+import { aiSlideSchema } from "../lib/carousel";
 import { AIError, complete } from "./providers";
 
 /** Phrases that make a post sound machine-written. Always avoided. */
@@ -185,6 +186,8 @@ const REWRITE_PROMPTS: Record<RewriteAction, string> = {
   punchier: "Make it punchier: shorter sentences, stronger verbs, cut filler words.",
   add_cta: "End with a natural question or call to action that invites comments. Keep everything else.",
   fix_formatting: "Fix the formatting for LinkedIn: short paragraphs, blank lines between them, no markdown. Do not change the wording more than needed.",
+  carousel_caption:
+    "This post will go out with a swipeable document carousel that already covers the details. Rewrite it as a short caption (300-600 characters): a strong hook, one or two lines of context that make people want to swipe, without repeating every point, and end with a natural nudge to swipe through (for example \"Swipe through →\") and a question that invites comments.",
   custom: "",
 };
 
@@ -284,34 +287,115 @@ Respond with only JSON: {"hooks":["...","...","..."]}. Use \\n for a line break 
     .slice(0, 3);
 }
 
-/** Turn a post into a 5-8 slide carousel outline (cover, one idea per slide, closing slide). */
-export async function generateCarousel(settings: Settings, profile: VoiceProfile, content: string): Promise<Carousel> {
-  const prompt = `Turn this LinkedIn post into a document carousel (a swipeable PDF) of 5 to 8 slides.
+const SLIDE_GUIDE = `Slide types (pick the one that fits each idea best; vary them):
+- "cover": first slide. heading = a bold, specific headline (max 8 words) that makes people swipe; body = optional one-line subtitle.
+- "text": heading (max 8 words) + body (max 30 words).
+- "list": heading + items (3-5 short points, max 10 words each), shown numbered.
+- "checklist": heading + items (3-5 short actions), shown with check marks.
+- "stat": stat = a short number like "3x", "47%" or "$12k" (only if the input supports it; never invent numbers) + heading (what it measures) + body (one line of context).
+- "quote": heading = the quote itself (max 25 words, no quote marks) + body = who said it (or empty).
+- "compare": heading + labels (two short column titles, e.g. ["Before","After"] or ["Myth","Reality"]) + items (left column, 2-4 points) + items2 (right column, same count).
+- "cta": last slide. heading = the takeaway or a question that invites comments; body = a short nudge such as "Follow for more on <topic>" or "Repost if this helps".
 
-- Slide 1 is the cover: a short, bold heading (max 8 words) that makes people swipe, and an optional one-line subtitle as the body.
-- Middle slides: one idea each. Heading max 8 words; body max 30 words, plain sentences.
-- Last slide: a takeaway or question that invites comments (body can suggest following the author).
-- No emojis, no hashtags, no markdown, no slide numbers.
+Rules: no emojis, no hashtags, no markdown except: wrap 1-2 key words per slide in *single stars* to highlight them. No slide numbers.`;
 
-<post>
-${content}
-</post>
+const carouselShape = z.object({
+  title: z.string().default("Carousel"),
+  caption: z.string().optional(),
+  slides: z.array(aiSlideSchema).min(2),
+});
 
-Respond with only JSON: {"title":"short document title","slides":[{"heading":"...","body":"..."}]}`;
+/**
+ * Outline a 5-8 slide carousel. From a finished post (`content`), or from a rough idea or
+ * link (`fromIdea`), in which case it also writes a short caption for the post.
+ */
+export async function generateCarousel(
+  settings: Settings,
+  profile: VoiceProfile,
+  content: string,
+  { fromIdea = false } = {},
+): Promise<Carousel> {
+  const source = fromIdea ? await expandInput(content) : content;
+  const prompt = `Turn this ${fromIdea ? "idea" : "LinkedIn post"} into a document carousel (a swipeable PDF) of 5 to 8 slides.
+
+${SLIDE_GUIDE}
+
+Start with a "cover" slide and end with a "cta" slide.
+
+<${fromIdea ? "idea" : "post"}>
+${source}
+</${fromIdea ? "idea" : "post"}>
+${
+  fromIdea
+    ? `\nAlso write "caption": the LinkedIn post text that goes with the carousel, 300-600 characters: a strong hook, a line or two of context, a nudge to swipe through and a question. Follow the author's voice.\n`
+    : ""
+}
+Respond with only JSON: {"title":"short document title",${fromIdea ? '"caption":"...",' : ""}"slides":[{"type":"cover","heading":"...","body":"..."}, ...]}`;
   const text = await complete(settings.aiProvider, {
     system: systemPrompt(profile),
     prompt,
     model: settings.aiModel,
     effort: "low",
   });
-  const parsed = parseJson(
-    text,
-    z.object({ title: z.string(), slides: z.array(z.object({ heading: z.string(), body: z.string().default("") })).min(2) }),
-  );
+  const parsed = parseJson(text, carouselShape);
+  const slides = parsed.slides.slice(0, 10);
+  if (slides[0].type === "text") slides[0].type = "cover";
   return {
-    title: stripMarkdown(parsed.title).slice(0, 120),
-    slides: parsed.slides.slice(0, 10).map((s) => ({ heading: stripMarkdown(s.heading), body: stripMarkdown(s.body) })),
+    title: stripMarkdown(parsed.title).slice(0, 120) || "Carousel",
+    slides,
+    ...(fromIdea && parsed.caption ? { caption: stripMarkdown(parsed.caption) } : {}),
   };
+}
+
+/** Three alternative cover headlines. */
+export async function generateCoverHeadlines(
+  settings: Settings,
+  profile: VoiceProfile,
+  content: string,
+  current: string,
+): Promise<string[]> {
+  const prompt = `This is the cover headline of a LinkedIn document carousel: "${current}"
+
+Write 3 alternative cover headlines (max 8 words each) that make people stop and swipe. Different styles: a bold specific claim, a number-led promise, and a curiosity gap. Wrap the 1-2 most important words in *single stars*. No emojis, no hashtags.
+
+The carousel is about this post:
+<post>
+${content.slice(0, 3000)}
+</post>
+
+Respond with only JSON: {"headlines":["...","...","..."]}`;
+  const text = await complete(settings.aiProvider, { system: systemPrompt(profile), prompt, model: settings.aiModel, effort: "low" });
+  return parseJson(text, z.object({ headlines: z.array(z.string()).min(1) }))
+    .headlines.map((h) => h.replace(/\*\*(.+?)\*\*/g, "*$1*").replace(/^["']|["']$/g, "").trim())
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
+/** Rewrite one slide (same type unless the instruction asks otherwise). */
+export async function rewriteSlide(
+  settings: Settings,
+  profile: VoiceProfile,
+  content: string,
+  slide: CarouselSlide,
+  instruction?: string,
+): Promise<CarouselSlide> {
+  const { image: _image, ...rest } = slide;
+  const prompt = `Rewrite this slide of a LinkedIn document carousel. ${instruction?.trim() || "Make it sharper and more specific, and keep it short."}
+
+${SLIDE_GUIDE}
+
+Current slide (keep its type unless asked to change it):
+${JSON.stringify(rest)}
+
+The carousel is about this post:
+<post>
+${content.slice(0, 3000)}
+</post>
+
+Respond with only JSON: the rewritten slide object, e.g. {"type":"${slide.type ?? "text"}","heading":"...","body":"..."}`;
+  const text = await complete(settings.aiProvider, { system: systemPrompt(profile), prompt, model: settings.aiModel, effort: "low" });
+  const next = parseJson(text, aiSlideSchema);
+  return slide.image ? { ...next, image: slide.image } : next;
 }
 
 /** Formats rotated across a planned week, so posts written in parallel don't come out alike. */

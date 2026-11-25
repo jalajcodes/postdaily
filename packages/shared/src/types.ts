@@ -39,6 +39,7 @@ export const REWRITE_ACTIONS = {
   punchier: "Punchier",
   add_cta: "Add a question/CTA",
   fix_formatting: "Fix formatting",
+  carousel_caption: "Rewrite as carousel caption",
   custom: "Custom instruction",
 } as const;
 export type RewriteAction = keyof typeof REWRITE_ACTIONS;
@@ -70,6 +71,8 @@ export interface Settings {
   jitterMinutes: number;
   /** Push a "reply to comments now" nudge ~40 minutes after a post goes live. */
   engagementNudge: boolean;
+  /** Defaults and identity used on every carousel. */
+  carouselBrand: CarouselBrand;
 }
 
 /**
@@ -143,6 +146,7 @@ export interface Post {
   hasDocument: boolean;
   documentTitle: string | null;
   carouselSlides: CarouselSlide[] | null;
+  carouselDesign: CarouselDesign | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -153,14 +157,107 @@ export interface Slot {
   time: string; // "HH:MM"
 }
 
+// --- Carousels ---------------------------------------------------------------------------
+
+export const SLIDE_TYPES = {
+  cover: "Cover",
+  text: "Heading + text",
+  list: "Numbered list",
+  checklist: "Checklist",
+  stat: "Big number",
+  quote: "Quote",
+  compare: "Before / after",
+  image: "Image",
+  cta: "Closing (follow)",
+} as const;
+export type SlideType = keyof typeof SLIDE_TYPES;
+
 export interface CarouselSlide {
+  /** Defaults to "text" (older carousels have no type). */
+  type?: SlideType;
+  /** Wrap words in *stars* to highlight them in the accent color. */
   heading: string;
   body: string;
+  /** list / checklist items; for compare, the "before" side. */
+  items?: string[];
+  /** compare: the "after" side. */
+  items2?: string[];
+  /** compare: the two column labels (default Before / After). */
+  labels?: [string, string];
+  /** stat: the big number, e.g. "3x" or "$40k". */
+  stat?: string;
+  /** image: a JPEG data URL (resized in the browser). */
+  image?: string;
 }
+
+export const CAROUSEL_THEMES = {
+  bold: "Bold: color cover & end",
+  light: "Clean light",
+  dark: "Dark",
+  gradient: "Full color",
+  paper: "Paper (editorial)",
+  mono: "Minimal black & white",
+} as const;
+export type CarouselTheme = keyof typeof CAROUSEL_THEMES;
+
+export const CAROUSEL_PATTERNS = {
+  none: "None",
+  dots: "Dots",
+  grid: "Grid",
+  diagonal: "Diagonal lines",
+  waves: "Waves",
+  blobs: "Soft blobs",
+  rings: "Rings",
+  topo: "Topographic",
+  grain: "Grain",
+  corner: "Corner shapes",
+} as const;
+export type CarouselPattern = keyof typeof CAROUSEL_PATTERNS;
+
+/** Heading / body font pairs. All are bundled with the app. */
+export const CAROUSEL_FONTS = {
+  inter: { label: "Inter", heading: "Inter", body: "Inter" },
+  poppins: { label: "Poppins", heading: "Poppins", body: "Poppins" },
+  montserrat: { label: "Montserrat", heading: "Montserrat", body: "Inter" },
+  grotesk: { label: "Space Grotesk", heading: "Space Grotesk", body: "Inter" },
+  serif: { label: "Playfair (serif)", heading: "Playfair Display", body: "Inter" },
+} as const;
+export type CarouselFont = keyof typeof CAROUSEL_FONTS;
+
+export const ACCENT_PRESETS = ["#0a66c2", "#7c3aed", "#db2777", "#ea580c", "#16a34a", "#0f766e", "#111827"] as const;
+
+export interface CarouselDesign {
+  theme: CarouselTheme;
+  pattern: CarouselPattern;
+  font: CarouselFont;
+  /** Hex color, e.g. "#0a66c2". */
+  accent: string;
+}
+
+export interface CarouselBrand extends CarouselDesign {
+  /** Shown under your name on each slide, e.g. "@alexrivera". */
+  handle: string;
+  /** Show your profile photo on slides. */
+  showAvatar: boolean;
+  /** Optional small logo (PNG/JPEG data URL), shown on the cover and closing slide. */
+  logo: string | null;
+}
+
+export const DEFAULT_CAROUSEL_BRAND: CarouselBrand = {
+  theme: "bold",
+  pattern: "dots",
+  font: "inter",
+  accent: "#0a66c2",
+  handle: "",
+  showAvatar: true,
+  logo: null,
+};
 
 export interface Carousel {
   title: string;
   slides: CarouselSlide[];
+  /** When made from a rough idea: a short post caption to go with the carousel. */
+  caption?: string;
 }
 
 /** One post from "Plan my week": a saved draft and the slot it's meant for. */
@@ -223,5 +320,9 @@ export const MAX_IMAGE_BYTES = 900_000;
 export const LINKEDIN_MAX_CHARS = 3000;
 /** Carousel PDFs are stored as base64 in a D1 row (2 MB max), so keep the PDF under this. */
 export const MAX_DOCUMENT_BYTES = 1_400_000;
+/** Images placed on carousel slides are resized to stay under this (they're kept in the post row). */
+export const MAX_SLIDE_IMAGE_BYTES = 220_000;
+export const MAX_SLIDE_IMAGES = 2;
+export const MAX_CAROUSEL_SLIDES = 12;
 /** Minutes after publishing to send the "reply to comments" nudge. */
 export const NUDGE_AFTER_MIN = 40;

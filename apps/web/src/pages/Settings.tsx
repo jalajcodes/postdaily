@@ -1,7 +1,19 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BellRing, CheckCircle2, CircleAlert, Smartphone } from "lucide-react";
-import { DEFAULT_MODELS, type Settings } from "@postdaily/shared";
+import {
+  ACCENT_PRESETS,
+  CAROUSEL_FONTS,
+  CAROUSEL_PATTERNS,
+  CAROUSEL_THEMES,
+  DEFAULT_MODELS,
+  type CarouselBrand,
+  type CarouselFont,
+  type CarouselPattern,
+  type CarouselTheme,
+  type Settings,
+} from "@postdaily/shared";
+import { prepareLogo } from "../lib/carousel";
 import { api } from "../lib/api";
 import { currentSubscription, disablePush, enablePush, isInstalled, isIos, pushSupported } from "../lib/push";
 import { Button, Card, ErrorText, Label, LinkedinIcon, PageHeader, Spinner, inputBaseCls, inputCls } from "../components/ui";
@@ -155,6 +167,8 @@ export function SettingsPage() {
 
           <PushCard />
 
+          <BrandCard brand={s.carouselBrand} onChange={(b) => set("carouselBrand", b)} />
+
           <Card className="space-y-4">
             <h2 className="font-medium">Habit</h2>
             <div>
@@ -296,6 +310,104 @@ function PushCard() {
       )}
       {message && <p className="text-xs text-green-700">{message}</p>}
       <ErrorText error={enable.error ?? disable.error ?? test.error} />
+    </Card>
+  );
+}
+
+/** Carousel defaults: identity (handle, photo, logo) and the default look. Saved with Settings. */
+function BrandCard({ brand, onChange }: { brand: CarouselBrand; onChange: (b: CarouselBrand) => void }) {
+  const set = <K extends keyof CarouselBrand>(k: K, v: CarouselBrand[K]) => onChange({ ...brand, [k]: v });
+  const [logoError, setLogoError] = useState<unknown>(null);
+  return (
+    <Card className="space-y-3">
+      <h2 className="font-medium">Carousel brand</h2>
+      <p className="text-sm text-slate-600">Used on every new carousel. You can still change the look per carousel.</p>
+      <div>
+        <Label hint="(shown under your name, e.g. @alexrivera)">Handle</Label>
+        <input className={inputCls} maxLength={60} value={brand.handle} onChange={(e) => set("handle", e.target.value)} />
+      </div>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={brand.showAvatar} onChange={(e) => set("showAvatar", e.target.checked)} />
+        Show my LinkedIn photo on slides
+      </label>
+      <div>
+        <Label hint="(optional, on the cover and last slide)">Logo</Label>
+        <div className="flex items-center gap-3">
+          {brand.logo && <img src={brand.logo} alt="Logo" className="h-10 max-w-32 rounded border border-slate-200 bg-slate-50 object-contain p-1" />}
+          <label className="cursor-pointer text-sm text-brand-600 hover:underline">
+            {brand.logo ? "Replace" : "Upload logo"}
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={async (e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (!f) return;
+                setLogoError(null);
+                try {
+                  set("logo", await prepareLogo(f));
+                } catch (err) {
+                  setLogoError(err);
+                }
+              }}
+            />
+          </label>
+          {brand.logo && (
+            <button className="text-sm text-slate-500 hover:text-red-600" onClick={() => set("logo", null)}>
+              Remove
+            </button>
+          )}
+        </div>
+        <ErrorText error={logoError} />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <Label>Default style</Label>
+          <select className={inputCls} value={brand.theme} onChange={(e) => set("theme", e.target.value as CarouselTheme)}>
+            {Object.entries(CAROUSEL_THEMES).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <Label>Default pattern</Label>
+          <select className={inputCls} value={brand.pattern} onChange={(e) => set("pattern", e.target.value as CarouselPattern)}>
+            {Object.entries(CAROUSEL_PATTERNS).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <Label>Default font</Label>
+          <select className={inputCls} value={brand.font} onChange={(e) => set("font", e.target.value as CarouselFont)}>
+            {Object.entries(CAROUSEL_FONTS).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <Label>Brand color</Label>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {ACCENT_PRESETS.map((c) => (
+              <button
+                key={c}
+                onClick={() => set("accent", c)}
+                className={`size-7 rounded-full border-2 ${brand.accent.toLowerCase() === c ? "border-slate-900" : "border-white shadow"}`}
+                style={{ background: c }}
+                aria-label={`Brand color ${c}`}
+              />
+            ))}
+            <input type="color" value={brand.accent} onChange={(e) => set("accent", e.target.value)} className="size-7 cursor-pointer" aria-label="Custom brand color" />
+          </div>
+        </div>
+      </div>
     </Card>
   );
 }

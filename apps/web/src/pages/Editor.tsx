@@ -18,10 +18,20 @@ import {
   Wand2,
   X,
 } from "lucide-react";
-import { LINKEDIN_MAX_CHARS, REWRITE_ACTIONS, replaceHook, type Carousel, type RewriteAction } from "@postdaily/shared";
+import {
+  DEFAULT_CAROUSEL_BRAND,
+  LINKEDIN_MAX_CHARS,
+  REWRITE_ACTIONS,
+  replaceHook,
+  type Carousel,
+  type CarouselDesign,
+  type RewriteAction,
+} from "@postdaily/shared";
 import { api, formatWhen } from "../lib/api";
 import { LinkedInPreview } from "../components/LinkedInPreview";
-import { prepareImage, quoteCard, slideThumbnails } from "../lib/image";
+import { prepareImage, quoteCard } from "../lib/image";
+import { slideThumbnails } from "../lib/carousel";
+import { useCarouselAssets } from "../lib/useCarousel";
 import { CarouselEditor } from "../components/CarouselEditor";
 import { Button, Card, ErrorText, Spinner, inputCls } from "../components/ui";
 
@@ -163,8 +173,8 @@ export function EditorPage() {
   const hooks = useMutation({ mutationFn: () => api.ai.hooks(content) });
 
   // Carousel: AI outline -> edit slides -> PDF built in the browser -> attached to the post.
-  const [carouselDraft, setCarouselDraft] = useState<Carousel | null>(null);
-  const outline = useMutation({ mutationFn: () => api.ai.carousel(content), onSuccess: setCarouselDraft });
+  const [carouselDraft, setCarouselDraft] = useState<(Carousel & { design?: CarouselDesign | null }) | null>(null);
+  const outline = useMutation({ mutationFn: () => api.ai.carousel(content), onSuccess: (c) => setCarouselDraft(c) });
   const setDocument = useMutation({
     mutationFn: (doc: Parameters<typeof api.posts.setDocument>[1]) => api.posts.setDocument(id!, doc),
     onSuccess: () => {
@@ -174,8 +184,28 @@ export function EditorPage() {
     },
   });
   const authorName = me.data?.name ?? "";
+  const brand = settings.data?.carouselBrand ?? DEFAULT_CAROUSEL_BRAND;
   const slides = post.data?.carouselSlides;
-  const docThumbs = useMemo(() => (slides ? slideThumbnails(slides, authorName) : []), [slides, authorName]);
+  const docDesign: CarouselDesign = post.data?.carouselDesign ?? {
+    theme: brand.theme,
+    pattern: brand.pattern,
+    font: brand.font,
+    accent: brand.accent,
+  };
+  const docAssets = useCarouselAssets(docDesign, brand, authorName, post.data?.hasDocument ? (slides ?? []) : []);
+  const docThumbs = useMemo(
+    () => (slides && post.data?.hasDocument && docAssets ? slideThumbnails(slides, docDesign, docAssets, 360).map((t) => t.src) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [slides, post.data?.hasDocument, post.data?.carouselDesign, docAssets],
+  );
+  // A carousel outline saved with the post (made from Write) but not designed/attached yet: open it.
+  const pendingOpened = useRef(false);
+  useEffect(() => {
+    const d = post.data;
+    if (!d || pendingOpened.current || d.hasDocument || !d.carouselSlides?.length || d.status === "published") return;
+    pendingOpened.current = true;
+    setCarouselDraft({ title: d.documentTitle ?? "Carousel", slides: d.carouselSlides, design: d.carouselDesign });
+  }, [post.data]);
 
   if (post.isLoading) return <Spinner />;
   if (!post.data) return <ErrorText error={post.error ?? "Post not found"} />;
@@ -343,14 +373,31 @@ export function EditorPage() {
               <span className="font-normal text-slate-400">(optional)</span>
             </div>
             {carouselDraft ? (
-              <CarouselEditor
-                key={carouselDraft.title + carouselDraft.slides.length}
-                initialTitle={carouselDraft.title}
-                initialSlides={carouselDraft.slides}
-                name={authorName}
-                onSave={(doc) => setDocument.mutateAsync(doc)}
-                onCancel={() => setCarouselDraft(null)}
-              />
+              <>
+                <p className="text-sm text-slate-500">Designing your carousel…</p>
+                <div className="fixed inset-0 z-40 overflow-y-auto bg-slate-900/50 p-2 sm:p-6" role="dialog" aria-modal="true" aria-label="Design carousel">
+                  <div className="mx-auto max-w-6xl rounded-xl bg-white p-4 shadow-xl sm:p-6">
+                    <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold">
+                      <GalleryHorizontal className="size-5 text-brand-500" /> Design your carousel
+                    </h2>
+                  <CarouselEditor
+                    key={carouselDraft.title + carouselDraft.slides.length}
+                    initialTitle={carouselDraft.title}
+                    initialSlides={carouselDraft.slides}
+                    initialDesign={carouselDraft.design ?? null}
+                    brand={brand}
+                    name={authorName}
+                    postContent={content}
+                    onSave={(doc) => setDocument.mutateAsync(doc)}
+                    onCancel={() => {
+                      // Cancelling a carousel that was never attached discards the saved outline.
+                      if (!p.hasDocument && p.carouselSlides) removeImage.mutate();
+                      setCarouselDraft(null);
+                    }}
+                  />
+                  </div>
+                </div>
+              </>
             ) : p.hasDocument && slides ? (
               <div className="space-y-2">
                 <div className="flex gap-2 overflow-x-auto pb-1">
@@ -362,8 +409,22 @@ export function EditorPage() {
                   <b>{p.documentTitle}</b> · {slides.length} slides (PDF carousel)
                 </p>
                 <div className="flex flex-wrap items-center gap-2 text-sm">
-                  <Button variant="secondary" className="py-1.5 text-xs" onClick={() => setCarouselDraft({ title: p.documentTitle ?? "", slides })}>
-                    <Pencil className="size-3.5" /> Edit slides
+                  <Button
+                    variant="secondary"
+                    className="py-1.5 text-xs"
+                    onClick={() => setCarouselDraft({ title: p.documentTitle ?? "", slides, design: p.carouselDesign })}
+                  >
+                    <Pencil className="size-3.5" /> Edit carousel
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    className="py-1.5 text-xs"
+                    disabled={busy || !content.trim()}
+                    loading={busy && rewrite.variables?.action === "carousel_caption"}
+                    onClick={() => rewrite.mutate({ action: "carousel_caption" })}
+                    title="The carousel carries the details; make the post a short teaser that gets people to swipe"
+                  >
+                    <Wand2 className="size-3.5" /> Rewrite post as a short caption
                   </Button>
                   <Button variant="ghost" className="py-1.5 text-xs" onClick={() => removeImage.mutate()} loading={removeImage.isPending}>
                     Remove

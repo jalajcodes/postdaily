@@ -3,6 +3,7 @@ import type {
   AppNotification,
   AuthConfig,
   Carousel,
+  CarouselDesign,
   CarouselSlide,
   Draft,
   Idea,
@@ -68,6 +69,8 @@ export function createClient(opts: ClientOptions) {
         req<{ url: string }>("POST", `/auth/linkedin/link${redirect ? `?redirect=${encodeURIComponent(redirect)}` : ""}`),
       devLogin: () => req<{ token: string }>("POST", "/auth/dev-login"),
       me: () => req<User>("GET", "/me"),
+      /** URL of your LinkedIn photo served by the API (fetch it with your token). */
+      avatarUrl: () => `${opts.baseUrl}/api/me/avatar`,
       logout: () => req<{ ok: true }>("POST", "/auth/logout"),
     },
     settings: {
@@ -98,6 +101,11 @@ export function createClient(opts: ClientOptions) {
         req<{ content: string }>("POST", "/ai/rewrite", { content, action, instruction }),
       hooks: (content: string) => req<{ hooks: string[] }>("POST", "/ai/hooks", { content }),
       carousel: (content: string) => req<Carousel>("POST", "/ai/carousel", { content }),
+      /** 3 alternative cover headlines. */
+      coverHeadlines: (content: string, current: string) =>
+        req<{ headlines: string[] }>("POST", "/ai/carousel/covers", { content, current }),
+      rewriteSlide: (content: string, slide: CarouselSlide, instruction?: string) =>
+        req<{ slide: CarouselSlide }>("POST", "/ai/carousel/slide", { content, slide, instruction }),
     },
     plan: {
       /** Free posting slots in the next `days` days (max 10). */
@@ -127,8 +135,10 @@ export function createClient(opts: ClientOptions) {
       setImage: (id: string, dataUrl: string, alt?: string) => req<Post>("PUT", `/posts/${id}/image`, { dataUrl, alt }),
       /** Removes the post's image or carousel. */
       removeImage: (id: string) => req<Post>("DELETE", `/posts/${id}/image`),
-      setDocument: (id: string, doc: { dataUrl: string; title: string; slides: CarouselSlide[] }) =>
+      setDocument: (id: string, doc: { dataUrl: string; title: string; slides: CarouselSlide[]; design?: CarouselDesign }) =>
         req<Post>("PUT", `/posts/${id}/document`, doc),
+      /** From an idea or link: a post (the caption) with a carousel outline ready to design. */
+      createCarousel: (input: string, ideaId?: string | null) => req<Post>("POST", "/posts/carousel", { input, ideaId }),
     },
     slots: {
       get: () => req<Slot[]>("GET", "/slots"),
@@ -146,6 +156,12 @@ export function createClient(opts: ClientOptions) {
       markRead: () => req<{ ok: true }>("POST", "/notifications/read"),
     },
   };
+}
+
+/** Fetch an authenticated binary resource (e.g. the avatar) as a Blob. */
+export async function fetchBlob(url: string, token: string | null): Promise<Blob | null> {
+  const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  return res.ok ? res.blob() : null;
 }
 
 export type ApiClient = ReturnType<typeof createClient>;

@@ -2,7 +2,9 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { LINKEDIN_MAX_CHARS, MAX_DOCUMENT_BYTES, MAX_IMAGE_BYTES } from "@postdaily/shared";
 import { db, newId, nowIso } from "../db";
-import { getPost, toPost } from "../repo";
+import { getPost, getSettings, getVoiceProfile, toPost } from "../repo";
+import { generateCarousel } from "../ai/writer";
+import { designSchema, slidesSchema } from "../lib/carousel";
 import { nextFreeSlot, publishNow, schedulePost } from "../lib/schedule";
 import type { AppEnv } from "../lib/auth";
 
@@ -33,6 +35,30 @@ posts.post("/posts", async (c) => {
     body.ideaId ?? null,
   );
   return c.json(await getPost(c.get("userId"), id));
+});
+
+// Start from an idea or link: the AI writes a caption (the post) and a carousel outline.
+// The slides are saved with the post; the editor opens them so you can design and attach the PDF.
+posts.post("/posts/carousel", async (c) => {
+  const uid = c.get("userId");
+  const { input, ideaId } = z
+    .object({ input: z.string().trim().min(3, "Give me at least a few words"), ideaId: z.string().nullish() })
+    .parse(await c.req.json());
+  const settings = await getSettings(uid);
+  const carousel = await generateCarousel(settings, await getVoiceProfile(uid), input, { fromIdea: true });
+  const { handle: _h, showAvatar: _a, logo: _l, ...design } = settings.carouselBrand;
+  const id = newId();
+  await db.run(
+    "INSERT INTO posts (id, user_id, content, idea_id, document_title, carousel_slides, carousel_design) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    id,
+    uid,
+    carousel.caption ?? "",
+    ideaId ?? null,
+    carousel.title,
+    JSON.stringify(carousel.slides),
+    JSON.stringify(design),
+  );
+  return c.json(await getPost(uid, id));
 });
 
 posts.patch("/posts/:id", async (c) => {
@@ -98,7 +124,7 @@ posts.put("/posts/:id/image", async (c) => {
       params: [p.id, dataUrl],
     },
     {
-      sql: "UPDATE posts SET has_image = 1, media_type = 'image', document_title = NULL, carousel_slides = NULL, image_alt = COALESCE(?, image_alt), updated_at = ? WHERE id = ?",
+      sql: "UPDATE posts SET has_image = 1, media_type = 'image', document_title = NULL, carousel_slides = NULL, carousel_design = NULL, image_alt = COALESCE(?, image_alt), updated_at = ? WHERE id = ?",
       params: [alt?.trim() || null, nowIso(), p.id],
     },
   ]);
@@ -112,7 +138,7 @@ posts.delete("/posts/:id/image", async (c) => {
   await db.batch([
     { sql: "DELETE FROM post_images WHERE post_id = ?", params: [p.id] },
     {
-      sql: "UPDATE posts SET has_image = 0, media_type = NULL, image_alt = NULL, document_title = NULL, carousel_slides = NULL, updated_at = ? WHERE id = ?",
+      sql: "UPDATE posts SET has_image = 0, media_type = NULL, image_alt = NULL, document_title = NULL, carousel_slides = NULL, carousel_design = NULL, updated_at = ? WHERE id = ?",
       params: [nowIso(), p.id],
     },
   ]);
@@ -125,14 +151,15 @@ posts.put("/posts/:id/document", async (c) => {
   const p = await getPost(uid, c.req.param("id"));
   if (!p) return c.json({ error: "Not found" }, 404);
   if (p.status === "published" || p.status === "publishing") return c.json({ error: "Post is already published" }, 400);
-  const { dataUrl, title, slides } = z
+  const { dataUrl, title, slides, design } = z
     .object({
       dataUrl: z
         .string()
         .regex(/^data:application\/pdf;base64,[A-Za-z0-9+/=]+$/, "Expected a PDF")
         .max(Math.ceil(MAX_DOCUMENT_BYTES * 1.37) + 100, "Carousel is too large. Use fewer slides."),
       title: z.string().trim().min(1).max(400),
-      slides: z.array(z.object({ heading: z.string().max(200), body: z.string().max(600) })).min(1).max(20),
+      slides: slidesSchema,
+      design: designSchema.optional(),
     })
     .parse(await c.req.json());
   await db.batch([
@@ -141,8 +168,8 @@ posts.put("/posts/:id/document", async (c) => {
       params: [p.id, dataUrl],
     },
     {
-      sql: "UPDATE posts SET has_image = 1, media_type = 'document', image_alt = NULL, document_title = ?, carousel_slides = ?, updated_at = ? WHERE id = ?",
-      params: [title, JSON.stringify(slides), nowIso(), p.id],
+      sql: "UPDATE posts SET has_image = 1, media_type = 'document', image_alt = NULL, document_title = ?, carousel_slides = ?, carousel_design = ?, updated_at = ? WHERE id = ?",
+      params: [title, JSON.stringify(slides), design ? JSON.stringify(design) : null, nowIso(), p.id],
     },
   ]);
   return c.json(await getPost(uid, p.id));

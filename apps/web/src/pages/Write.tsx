@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookmarkPlus, Check, FileText, Mic, Sparkles, Square } from "lucide-react";
+import { BookmarkPlus, Check, FileText, GalleryHorizontal, Mic, Sparkles, Square } from "lucide-react";
 import type { Draft, PostLength } from "@postdaily/shared";
 import { api } from "../lib/api";
 import { speechSupported, startDictation } from "../lib/speech";
@@ -53,6 +53,15 @@ export function WritePage() {
     onSuccess: (r) => {
       setDrafts(r.drafts);
       setSavedIds({});
+    },
+  });
+
+  // A carousel straight from the idea: the AI writes a caption + slide outline, then the editor opens it.
+  const carousel = useMutation({
+    mutationFn: () => api.posts.createCarousel(input, ideaId),
+    onSuccess: (p) => {
+      qc.invalidateQueries({ queryKey: ["posts"] });
+      navigate(`/posts/${p.id}`);
     },
   });
 
@@ -129,16 +138,26 @@ export function WritePage() {
             <Button variant="secondary" disabled={!input.trim()} loading={pick.isPending} onClick={() => pick.mutate(input)}>
               <FileText className="size-4" /> Write it myself
             </Button>
+            <Button
+              variant="secondary"
+              disabled={!input.trim() || generate.isPending}
+              loading={carousel.isPending}
+              onClick={() => carousel.mutate()}
+              title="Turn this into a swipeable carousel with a short caption"
+            >
+              <GalleryHorizontal className="size-4" /> Make a carousel
+            </Button>
             <Button onClick={() => generate.mutate()} disabled={!input.trim()} loading={generate.isPending}>
               <Sparkles className="size-4" /> Generate 3 drafts
             </Button>
           </div>
         </div>
         <div className="mt-3">
-          <ErrorText error={generate.error ?? pick.error} />
+          <ErrorText error={generate.error ?? pick.error ?? carousel.error} />
         </div>
       </Card>
 
+      {carousel.isPending && <p className="mt-6 text-center text-sm text-slate-500">Outlining your carousel and writing a caption…</p>}
       {generate.isPending && (
         <p className="mt-6 text-center text-sm text-slate-500">Writing three takes in your voice… this can take up to a minute.</p>
       )}

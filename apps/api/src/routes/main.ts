@@ -18,12 +18,15 @@ import { listOpenRouterModels, providerStatuses } from "../ai/providers";
 import {
   analyzeStyle,
   generateCarousel,
+  generateCoverHeadlines,
   generateDrafts,
   generateHooks,
   generatePlannedPosts,
   PLAN_FORMATS,
   rewritePost,
+  rewriteSlide,
 } from "../ai/writer";
+import { brandSchema, slideSchema } from "../lib/carousel";
 import { computeStats, freeSlots, schedulePost } from "../lib/schedule";
 import { pushEnabled, saveSubscription, sendPush } from "../lib/push";
 import { env } from "../runtime/env";
@@ -54,6 +57,7 @@ main.put("/settings", async (c) => {
       jitterEnabled: z.boolean(),
       jitterMinutes: z.number().int().min(1).max(30),
       engagementNudge: z.boolean(),
+      carouselBrand: brandSchema,
     })
     .partial()
     .parse(await c.req.json());
@@ -126,6 +130,36 @@ main.post("/ai/carousel", async (c) => {
   const uid = c.get("userId");
   const { content } = z.object({ content: z.string().min(50, "Write the post first") }).parse(await c.req.json());
   return c.json(await generateCarousel(await getSettings(uid), await getVoiceProfile(uid), content));
+});
+main.post("/ai/carousel/covers", async (c) => {
+  const uid = c.get("userId");
+  const { content, current } = z.object({ content: z.string().min(1), current: z.string().max(200) }).parse(await c.req.json());
+  return c.json({ headlines: await generateCoverHeadlines(await getSettings(uid), await getVoiceProfile(uid), content, current) });
+});
+main.post("/ai/carousel/slide", async (c) => {
+  const uid = c.get("userId");
+  const { content, slide, instruction } = z
+    .object({ content: z.string().min(1), slide: slideSchema, instruction: z.string().max(300).optional() })
+    .parse(await c.req.json());
+  return c.json({ slide: await rewriteSlide(await getSettings(uid), await getVoiceProfile(uid), content, slide, instruction) });
+});
+
+// Your LinkedIn photo, proxied so the browser can draw it on carousel slides (a cross-origin
+// image would block exporting the slides). Only LinkedIn's media hosts are fetched.
+main.get("/me/avatar", async (c) => {
+  const row = await db.get<{ picture: string | null }>("SELECT picture FROM users WHERE id = ?", c.get("userId"));
+  let url: URL;
+  try {
+    url = new URL(row?.picture ?? "");
+  } catch {
+    return c.json({ error: "No profile photo" }, 404);
+  }
+  if (url.protocol !== "https:" || !(url.hostname === "licdn.com" || url.hostname.endsWith(".licdn.com")))
+    return c.json({ error: "No profile photo" }, 404);
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  const type = res.headers.get("content-type") ?? "";
+  if (!res.ok || !type.startsWith("image/")) return c.json({ error: "Couldn't load your profile photo" }, 502);
+  return new Response(await res.arrayBuffer(), { headers: { "Content-Type": type, "Cache-Control": "private, max-age=86400" } });
 });
 
 // --- Plan my week: one draft per free slot, rotating through your content pillars ---
