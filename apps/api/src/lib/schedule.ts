@@ -1,9 +1,9 @@
 // Slot math, publishing and streak stats.
 import { DateTime } from "luxon";
 import type { Post, Stats } from "@postdaily/shared";
-import { db, nowIso } from "../db";
-import { getSettings, getSlots, getUserRow, toPost } from "../repo";
-import { publishPost } from "./linkedin";
+import { db, nowIso, type Statement } from "../db";
+import { getLearnedPosts, getSettings, getSlots, getUserRow, toPost } from "../repo";
+import { commentOnPost, LinkedInError, publishPost, uploadImage } from "./linkedin";
 
 /** Next weekly slot (in the user's timezone) that has no post queued yet. */
 export async function nextFreeSlot(userId: string): Promise<string | null> {
@@ -51,7 +51,7 @@ export async function schedulePost(userId: string, postId: string, scheduledAt: 
   const minutes = (jitter ?? s.jitterEnabled) ? s.jitterMinutes : 0;
   const at = new Date(scheduledAt).toISOString();
   await db.run(
-    "UPDATE posts SET status='queued', scheduled_at=?, publish_at=?, jitter_minutes=?, error=NULL, updated_at=? WHERE id=? AND user_id=?",
+    "UPDATE posts SET status='queued', scheduled_at=?, publish_at=?, jitter_minutes=?, retry_count=0, error=NULL, updated_at=? WHERE id=? AND user_id=?",
     at,
     jitteredTime(at, minutes),
     minutes,
@@ -77,25 +77,75 @@ export async function publishNow(userId: string, postId: string): Promise<Post> 
   );
   if (!claimed.changes) return toPost((await db.get("SELECT * FROM posts WHERE id = ?", postId))!);
 
+  let token: string | undefined;
+  let sub: string | undefined;
   try {
     const user = await getUserRow(userId);
     if (!user?.linkedin_token || !user.linkedin_sub) throw new Error("Connect your LinkedIn account in Settings first.");
     if (user.linkedin_expires_at && new Date(user.linkedin_expires_at) < new Date())
       throw new Error("Your LinkedIn connection expired. Reconnect it in Settings.");
-    const urn = await publishPost(user.linkedin_token, user.linkedin_sub, row.content);
-    const stmts = [
+    token = user.linkedin_token as string;
+    sub = user.linkedin_sub as string;
+
+    let image: { urn: string; alt?: string | null } | undefined;
+    if (row.has_image) {
+      const img = await db.get<{ data_url: string }>("SELECT data_url FROM post_images WHERE post_id = ?", postId);
+      if (img) image = { urn: await uploadImage(token, sub, img.data_url), alt: row.image_alt };
+    }
+    const urn = await publishPost(token, sub, row.content, image);
+
+    // Keep the newest published posts as voice examples; re-learn the style every 5 posts.
+    const learned = [row.content as string, ...(await getLearnedPosts(userId))].slice(0, MAX_LEARNED_POSTS);
+    const { n } = (await db.get<{ n: number }>(
+      "SELECT COUNT(*) AS n FROM posts WHERE user_id = ? AND status = 'published'",
+      userId,
+    ))!;
+    const stmts: Statement[] = [
       {
         sql: "UPDATE posts SET status='published', published_at=?, linkedin_urn=?, error=NULL, updated_at=? WHERE id=?",
         params: [nowIso(), urn, nowIso(), postId],
       },
+      {
+        sql: `UPDATE profiles SET learned_posts = ?${(n + 1) % 5 === 0 ? ", style_refresh_due = 1" : ""} WHERE user_id = ?`,
+        params: [JSON.stringify(learned), userId],
+      },
     ];
     if (row.idea_id) stmts.push({ sql: "UPDATE ideas SET status='used' WHERE id=?", params: [row.idea_id] });
     await db.batch(stmts);
+
+    // First comment (e.g. the link). The post is already live, so a failure here is only noted.
+    if (row.first_comment?.trim() && urn) {
+      try {
+        const commentUrn = await commentOnPost(token, sub, urn, row.first_comment.trim());
+        await db.run("UPDATE posts SET comment_urn = ?, comment_error = NULL WHERE id = ?", commentUrn, postId);
+      } catch (e) {
+        await db.run("UPDATE posts SET comment_error = ? WHERE id = ?", (e as Error).message, postId);
+      }
+    }
   } catch (e) {
-    await db.run("UPDATE posts SET status='failed', error=?, updated_at=? WHERE id=?", (e as Error).message, nowIso(), postId);
+    const retries = (row.retry_count as number) ?? 0;
+    if (e instanceof LinkedInError && e.temporary && retries < RETRY_DELAYS_MIN.length) {
+      // Rate limit or LinkedIn outage: try again later instead of failing.
+      const at = new Date(Date.now() + RETRY_DELAYS_MIN[retries] * 60_000).toISOString();
+      await db.run(
+        "UPDATE posts SET status='queued', publish_at=?, scheduled_at=COALESCE(scheduled_at, ?), retry_count=?, error=?, updated_at=? WHERE id=?",
+        at,
+        at,
+        retries + 1,
+        `LinkedIn had a temporary problem (${e.status}). Retrying automatically (attempt ${retries + 2} of ${RETRY_DELAYS_MIN.length + 1}).`,
+        nowIso(),
+        postId,
+      );
+    } else {
+      await db.run("UPDATE posts SET status='failed', error=?, updated_at=? WHERE id=?", (e as Error).message, nowIso(), postId);
+    }
   }
   return toPost((await db.get("SELECT * FROM posts WHERE id = ?", postId))!);
 }
+
+/** Minutes to wait before each automatic retry after a temporary LinkedIn error. */
+export const RETRY_DELAYS_MIN = [5, 15, 60];
+const MAX_LEARNED_POSTS = 8;
 
 export async function computeStats(userId: string): Promise<Stats> {
   const { timezone, weeklyGoal } = await getSettings(userId);

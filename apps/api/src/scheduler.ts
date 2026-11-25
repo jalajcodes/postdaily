@@ -5,7 +5,8 @@
 //  - reminds you if you haven't posted (or queued) anything by your reminder time
 import { DateTime } from "luxon";
 import { db, nowIso } from "./db";
-import { addNotification, getProfile, getSettings } from "./repo";
+import { addNotification, getProfile, getSettings, getVoiceProfile, updateProfile } from "./repo";
+import { analyzeStyle } from "./ai/writer";
 import { computeStats, publishNow } from "./lib/schedule";
 import { createIdeasForToday } from "./routes/ideas";
 
@@ -38,7 +39,7 @@ async function dailyJobs() {
   const users = await db.all<{ id: string }>("SELECT id FROM users");
   for (const { id } of users) {
     const s = await getSettings(id);
-    const row = (await db.get("SELECT last_reminder_date, last_ideas_date FROM settings WHERE user_id = ?", id))!;
+    const row = (await db.get("SELECT last_reminder_date, last_ideas_date, linkedin_warning FROM settings WHERE user_id = ?", id))!;
     const now = DateTime.now().setZone(s.timezone);
     const today = now.toISODate()!;
 
@@ -50,6 +51,9 @@ async function dailyJobs() {
         await createIdeasForToday(id).catch((e) => console.warn(`[ideas] ${id}: ${(e as Error).message}`));
       }
     }
+
+    await linkedinExpiryWarning(id, row.linkedin_warning);
+    await refreshStyleIfDue(id);
 
     // Reminder
     if (s.reminderEnabled && row.last_reminder_date !== today && now.toFormat("HH:mm") >= s.reminderTime) {
@@ -64,6 +68,48 @@ async function dailyJobs() {
         desktopNotify?.("PostDaily", body);
       }
     }
+  }
+}
+
+const WARNING_LEVEL = { "7d": 1, "1d": 2, expired: 3 } as const;
+type Warning = keyof typeof WARNING_LEVEL;
+
+/** Warn 7 days and 1 day before the LinkedIn connection expires, and once when it has expired. */
+async function linkedinExpiryWarning(userId: string, sent: Warning | null) {
+  const user = await db.get<{ linkedin_token: string | null; linkedin_expires_at: string | null }>(
+    "SELECT linkedin_token, linkedin_expires_at FROM users WHERE id = ?",
+    userId,
+  );
+  if (!user?.linkedin_token || !user.linkedin_expires_at) return;
+  const daysLeft = (new Date(user.linkedin_expires_at).getTime() - Date.now()) / 86_400_000;
+  const due: Warning | null = daysLeft <= 0 ? "expired" : daysLeft <= 1 ? "1d" : daysLeft <= 7 ? "7d" : null;
+  if (!due) {
+    // Reconnected since the last warning: start over.
+    if (sent) await db.run("UPDATE settings SET linkedin_warning = NULL WHERE user_id = ?", userId);
+    return;
+  }
+  if (sent && WARNING_LEVEL[sent] >= WARNING_LEVEL[due]) return;
+  await db.run("UPDATE settings SET linkedin_warning = ? WHERE user_id = ?", due, userId);
+  const body =
+    due === "expired"
+      ? "Your LinkedIn connection has expired, so scheduled posts can't go out. Reconnect it in Settings."
+      : `Your LinkedIn connection expires in ${due === "1d" ? "less than a day" : `${Math.ceil(daysLeft)} days`}. Reconnect it in Settings so scheduled posts keep going out.`;
+  await addNotification(userId, due === "expired" ? "LinkedIn disconnected" : "Reconnect LinkedIn soon", body);
+  desktopNotify?.("PostDaily", body);
+}
+
+/** Every 5 published posts, re-learn the style guide from your samples plus what you've published. */
+async function refreshStyleIfDue(userId: string) {
+  const due = await db.get("SELECT 1 FROM profiles WHERE user_id = ? AND style_refresh_due = 1", userId);
+  if (!due) return;
+  await db.run("UPDATE profiles SET style_refresh_due = 0 WHERE user_id = ?", userId);
+  try {
+    const profile = await getVoiceProfile(userId);
+    const { styleGuide } = await analyzeStyle(await getSettings(userId), profile);
+    await updateProfile(userId, { styleGuide });
+    await addNotification(userId, "Style guide updated", "PostDaily re-learned your style from your latest published posts.");
+  } catch (e) {
+    console.warn(`[style] ${userId}: ${(e as Error).message}`);
   }
 }
 

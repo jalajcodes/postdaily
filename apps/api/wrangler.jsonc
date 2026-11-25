@@ -12,6 +12,9 @@
     "run_worker_first": ["/api/*"]
   },
 
+  // Served at postdaily.jalaj.fyi (Cloudflare creates the DNS record and certificate).
+  "routes": [{ "pattern": "postdaily.jalaj.fyi", "custom_domain": true }],
+
   // The scheduler: publish due posts, morning ideas, reminders. Once a minute.
   "triggers": { "crons": ["* * * * *"] },
 
@@ -29,7 +32,10 @@
   // `npx wrangler secret put NAME` and never live in this file.
   "vars": {
     "DEFAULT_AI_PROVIDER": "openrouter",
-    "LINKEDIN_API_VERSION": "202606"
+    "LINKEDIN_API_VERSION": "202606",
+    // Push notifications. The matching private key is a secret: npx wrangler secret put VAPID_PRIVATE_KEY
+    "VAPID_PUBLIC_KEY": "BFr5zSc4JaqwIyF16AhhNI-U7P7wJx8Lrzv8n1IeuEQNnLDkl9m1117_IqyUN3G1hGai9TOBuk8UlcoSNkAWXn8",
+    "VAPID_SUBJECT": "https://postdaily.coders.workers.dev"
   },
 
   "observability": { "enabled": true }

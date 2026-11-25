@@ -19,6 +19,13 @@ export function QueuePage() {
     mutationFn: (id: string) => api.posts.unschedule(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["posts"] }),
   });
+  const retry = useMutation({
+    mutationFn: (id: string) => api.posts.retry(id),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["posts"] });
+      qc.invalidateQueries({ queryKey: ["stats"] });
+    },
+  });
 
   return (
     <>
@@ -39,10 +46,20 @@ export function QueuePage() {
         ))}
       </Section>
 
+      <ErrorText error={retry.error} />
       {!!failed.data?.length && (
         <Section title="Failed" empty="">
           {failed.data.map((p) => (
-            <PostRow key={p.id} post={p} meta={p.error ?? "Failed"} metaClass="text-red-600" />
+            <PostRow key={p.id} post={p} meta={p.error ?? "Failed"} metaClass="text-red-600">
+              <Button
+                variant="secondary"
+                className="py-1 text-xs"
+                loading={retry.isPending && retry.variables === p.id}
+                onClick={() => retry.mutate(p.id)}
+              >
+                Retry
+              </Button>
+            </PostRow>
           ))}
         </Section>
       )}

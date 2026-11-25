@@ -2,13 +2,13 @@ import { Hono } from "hono";
 import { DateTime } from "luxon";
 import { z } from "zod";
 import { db, newId } from "../db";
-import { getProfile, getSettings, toIdea } from "../repo";
+import { getSettings, getVoiceProfile, toIdea } from "../repo";
 import { generateIdeas } from "../ai/writer";
 import type { AppEnv } from "../lib/auth";
 
 export async function createIdeasForToday(userId: string) {
   const settings = await getSettings(userId);
-  const profile = await getProfile(userId);
+  const profile = await getVoiceProfile(userId);
   const recent = (
     await db.all(
       "SELECT content FROM posts WHERE user_id = ? AND status IN ('published','queued') ORDER BY updated_at DESC LIMIT 10",

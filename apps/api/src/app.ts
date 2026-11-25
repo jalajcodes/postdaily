@@ -9,6 +9,7 @@ import { ideas } from "./routes/ideas";
 import { posts } from "./routes/posts";
 import { AIError } from "./ai/providers";
 import { env } from "./runtime/env";
+import { db } from "./db";
 
 export function createApp() {
   const app = new Hono<AppEnv>();
@@ -34,6 +35,20 @@ export function createApp() {
 
   app.get("/api/health", (c) => c.json({ ok: true }));
   app.route("/api", auth);
+
+  // Called by the service worker after a push ping. The (unguessable) push endpoint identifies
+  // the device, so no session token is needed. Returns the newest unread notification.
+  app.post("/api/push/pending", async (c) => {
+    const { endpoint } = (await c.req.json().catch(() => ({}))) as { endpoint?: string };
+    if (!endpoint) return c.json({ error: "endpoint required" }, 400);
+    const sub = await db.get<{ user_id: string }>("SELECT user_id FROM push_subscriptions WHERE endpoint = ?", endpoint);
+    if (!sub) return c.json({ error: "Unknown subscription" }, 404);
+    const n = await db.get(
+      "SELECT title, body FROM notifications WHERE user_id = ? AND read = 0 ORDER BY created_at DESC LIMIT 1",
+      sub.user_id,
+    );
+    return c.json(n ?? { title: "PostDaily", body: "Open PostDaily to see what's new." });
+  });
 
   const protectedApi = new Hono<AppEnv>();
   protectedApi.use("*", requireAuth);

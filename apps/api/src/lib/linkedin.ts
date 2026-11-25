@@ -51,24 +51,81 @@ export function toLittleText(text: string) {
   return escaped.replace(/\\#([\p{L}\p{N}_]+)/gu, "{hashtag|\\#|$1}");
 }
 
-export async function publishPost(accessToken: string, personSub: string, content: string): Promise<string> {
+/** A LinkedIn API error. `temporary` = safe to retry later (rate limit or LinkedIn outage). */
+export class LinkedInError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+  }
+  get temporary() {
+    return this.status === 429 || this.status >= 500;
+  }
+}
+
+const restHeaders = (accessToken: string) => ({
+  Authorization: `Bearer ${accessToken}`,
+  "Content-Type": "application/json",
+  "LinkedIn-Version": env("LINKEDIN_API_VERSION") ?? "202606",
+  "X-Restli-Protocol-Version": "2.0.0",
+});
+
+async function fail(what: string, res: Response): Promise<never> {
+  throw new LinkedInError(`LinkedIn ${what} failed: ${res.status} ${(await res.text()).slice(0, 500)}`, res.status);
+}
+
+/** Upload an image (data URL) via the Images API and return its urn:li:image URN. */
+export async function uploadImage(accessToken: string, personSub: string, dataUrl: string): Promise<string> {
+  const init = await fetch("https://api.linkedin.com/rest/images?action=initializeUpload", {
+    method: "POST",
+    headers: restHeaders(accessToken),
+    body: JSON.stringify({ initializeUploadRequest: { owner: `urn:li:person:${personSub}` } }),
+  });
+  if (!init.ok) await fail("image upload setup", init);
+  const { value } = (await init.json()) as { value: { uploadUrl: string; image: string } };
+
+  const [meta, b64] = dataUrl.split(",", 2);
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const put = await fetch(value.uploadUrl, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": meta.match(/data:([^;]+)/)?.[1] ?? "image/jpeg" },
+    body: bytes,
+  });
+  if (!put.ok) await fail("image upload", put);
+  return value.image;
+}
+
+export async function publishPost(
+  accessToken: string,
+  personSub: string,
+  content: string,
+  image?: { urn: string; alt?: string | null },
+): Promise<string> {
   const res = await fetch("https://api.linkedin.com/rest/posts", {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      "LinkedIn-Version": env("LINKEDIN_API_VERSION") ?? "202606",
-      "X-Restli-Protocol-Version": "2.0.0",
-    },
+    headers: restHeaders(accessToken),
     body: JSON.stringify({
       author: `urn:li:person:${personSub}`,
       commentary: toLittleText(content),
       visibility: "PUBLIC",
       distribution: { feedDistribution: "MAIN_FEED", targetEntities: [], thirdPartyDistributionChannels: [] },
+      ...(image ? { content: { media: { id: image.urn, ...(image.alt ? { altText: image.alt.slice(0, 4000) } : {}) } } } : {}),
       lifecycleState: "PUBLISHED",
       isReshareDisabledByAuthor: false,
     }),
   });
-  if (res.status !== 201) throw new Error(`LinkedIn post failed: ${res.status} ${await res.text()}`);
+  if (res.status !== 201) await fail("post", res);
+  return res.headers.get("x-restli-id") ?? "";
+}
+
+/** Comment on your own post (used for the "first comment", e.g. a link). Returns the comment URN. */
+export async function commentOnPost(accessToken: string, personSub: string, postUrn: string, text: string): Promise<string> {
+  const res = await fetch(`https://api.linkedin.com/rest/socialActions/${encodeURIComponent(postUrn)}/comments`, {
+    method: "POST",
+    headers: restHeaders(accessToken),
+    body: JSON.stringify({ actor: `urn:li:person:${personSub}`, object: postUrn, message: { text } }),
+  });
+  if (!res.ok) await fail("comment", res);
   return res.headers.get("x-restli-id") ?? "";
 }

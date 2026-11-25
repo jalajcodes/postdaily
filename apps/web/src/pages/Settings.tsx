@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, CircleAlert } from "lucide-react";
+import { BellRing, CheckCircle2, CircleAlert, Smartphone } from "lucide-react";
 import { DEFAULT_MODELS, type Settings } from "@postdaily/shared";
 import { api } from "../lib/api";
+import { currentSubscription, disablePush, enablePush, isInstalled, isIos, pushSupported } from "../lib/push";
 import { Button, Card, ErrorText, Label, LinkedinIcon, PageHeader, Spinner, inputBaseCls, inputCls } from "../components/ui";
 
 const TIMEZONES: string[] = (Intl as any).supportedValuesOf?.("timeZone") ?? ["UTC"];
@@ -152,6 +153,8 @@ export function SettingsPage() {
             )}
           </Card>
 
+          <PushCard />
+
           <Card className="space-y-4">
             <h2 className="font-medium">Habit</h2>
             <div>
@@ -201,5 +204,91 @@ export function SettingsPage() {
         </div>
       </div>
     </>
+  );
+}
+
+/** Install as an app and get reminders / publish results as push notifications. */
+function PushCard() {
+  const config = useQuery({ queryKey: ["push-config"], queryFn: api.push.config });
+  const [subscribed, setSubscribed] = useState<boolean | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    currentSubscription().then((s) => setSubscribed(!!s));
+  }, []);
+
+  const enable = useMutation({
+    mutationFn: enablePush,
+    onSuccess: () => {
+      setSubscribed(true);
+      setMessage("Push notifications are on for this device.");
+    },
+  });
+  const disable = useMutation({
+    mutationFn: disablePush,
+    onSuccess: () => {
+      setSubscribed(false);
+      setMessage("Push notifications are off for this device.");
+    },
+  });
+  const test = useMutation({
+    mutationFn: api.push.test,
+    onSuccess: (r) => setMessage(r.sent ? "Test sent. It should appear in a few seconds." : "No devices are subscribed yet."),
+  });
+
+  const ios = isIos();
+  const needsInstall = ios && !isInstalled();
+
+  return (
+    <Card className="space-y-3">
+      <h2 className="flex items-center gap-2 font-medium">
+        <Smartphone className="size-4" /> Phone &amp; push notifications
+      </h2>
+      <p className="text-sm text-slate-600">
+        Get "time to post" reminders and "posted"/"failed" alerts on your phone, even when PostDaily isn't open.
+      </p>
+
+      {config.data && !config.data.enabled ? (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Push isn't set up on the server yet: add VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY (see README).
+        </p>
+      ) : !pushSupported() ? (
+        <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          {ios
+            ? "On iPhone: tap Share → Add to Home Screen, open PostDaily from the home screen, then come back here."
+            : "This browser doesn't support push notifications."}
+        </p>
+      ) : needsInstall ? (
+        <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          On iPhone, push works only from the installed app: tap Share → Add to Home Screen, open it from the home screen, then
+          turn notifications on here.
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {subscribed ? (
+            <>
+              <Button variant="secondary" onClick={() => test.mutate()} loading={test.isPending}>
+                <BellRing className="size-4" /> Send a test
+              </Button>
+              <Button variant="ghost" onClick={() => disable.mutate()} loading={disable.isPending}>
+                Turn off on this device
+              </Button>
+            </>
+          ) : (
+            <Button onClick={() => enable.mutate()} loading={enable.isPending} disabled={subscribed === null}>
+              <BellRing className="size-4" /> Turn on push notifications
+            </Button>
+          )}
+        </div>
+      )}
+
+      {!isInstalled() && !ios && (
+        <p className="text-xs text-slate-500">
+          Tip: install PostDaily as an app from your browser's menu (Install / Add to Home screen) for a phone-app feel.
+        </p>
+      )}
+      {message && <p className="text-xs text-green-700">{message}</p>}
+      <ErrorText error={enable.error ?? disable.error ?? test.error} />
+    </Card>
   );
 }

@@ -2,10 +2,12 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { AI_PROVIDERS, POST_LENGTHS, REWRITE_ACTIONS } from "@postdaily/shared";
 import { db, newId, type Statement } from "../db";
-import { getProfile, getSettings, getSlots, toNotification, updateProfile, updateSettings } from "../repo";
+import { getProfile, getSettings, getSlots, getVoiceProfile, toNotification, updateProfile, updateSettings } from "../repo";
 import { listOpenRouterModels, providerStatuses } from "../ai/providers";
 import { analyzeStyle, generateDrafts, rewritePost } from "../ai/writer";
 import { computeStats } from "../lib/schedule";
+import { pushEnabled, saveSubscription, sendPush } from "../lib/push";
+import { env } from "../runtime/env";
 import type { AppEnv } from "../lib/auth";
 
 export const main = new Hono<AppEnv>();
@@ -61,9 +63,14 @@ main.put("/profile", async (c) => {
 });
 main.post("/profile/analyze", async (c) => {
   const uid = c.get("userId");
-  const profile = await getProfile(uid);
+  const profile = await getVoiceProfile(uid);
   const { styleGuide, topics } = await analyzeStyle(await getSettings(uid), profile);
+  await db.run("UPDATE profiles SET style_refresh_due = 0 WHERE user_id = ?", uid);
   return c.json(await updateProfile(uid, { styleGuide, topics: profile.topics.length ? profile.topics : topics }));
+});
+main.delete("/profile/learned", async (c) => {
+  await db.run("UPDATE profiles SET learned_posts = '[]' WHERE user_id = ?", c.get("userId"));
+  return c.json(await getProfile(c.get("userId")));
 });
 
 // --- AI writing ---
@@ -72,7 +79,7 @@ main.post("/ai/drafts", async (c) => {
   const { input, length } = z
     .object({ input: z.string().min(3, "Give me at least a few words"), length: z.enum(POST_LENGTHS) })
     .parse(await c.req.json());
-  const drafts = await generateDrafts(await getSettings(uid), await getProfile(uid), input, length);
+  const drafts = await generateDrafts(await getSettings(uid), await getVoiceProfile(uid), input, length);
   return c.json({ drafts });
 });
 main.post("/ai/rewrite", async (c) => {
@@ -85,7 +92,7 @@ main.post("/ai/rewrite", async (c) => {
     })
     .parse(await c.req.json());
   return c.json({
-    content: await rewritePost(await getSettings(uid), await getProfile(uid), content, action, instruction),
+    content: await rewritePost(await getSettings(uid), await getVoiceProfile(uid), content, action, instruction),
   });
 });
 
@@ -115,6 +122,29 @@ main.put("/slots", async (c) => {
 
 // --- Streaks / stats ---
 main.get("/stats", async (c) => c.json(await computeStats(c.get("userId"))));
+
+// --- Push notifications (installable app) ---
+main.get("/push/config", (c) => c.json({ enabled: pushEnabled(), publicKey: env("VAPID_PUBLIC_KEY") ?? null }));
+main.post("/push/subscribe", async (c) => {
+  const { endpoint } = z.object({ endpoint: z.string().url().startsWith("https://") }).parse(await c.req.json());
+  await saveSubscription(c.get("userId"), endpoint);
+  return c.json({ ok: true });
+});
+main.post("/push/unsubscribe", async (c) => {
+  const { endpoint } = z.object({ endpoint: z.string() }).parse(await c.req.json());
+  await db.run("DELETE FROM push_subscriptions WHERE endpoint = ? AND user_id = ?", endpoint, c.get("userId"));
+  return c.json({ ok: true });
+});
+main.post("/push/test", async (c) => {
+  await db.run(
+    "INSERT INTO notifications (id, user_id, title, body) VALUES (?, ?, ?, ?)",
+    newId(),
+    c.get("userId"),
+    "PostDaily test",
+    "Push notifications are working.",
+  );
+  return c.json({ sent: await sendPush(c.get("userId")) });
+});
 
 // --- In-app notifications (reminders, publish results) ---
 main.get("/notifications", async (c) =>

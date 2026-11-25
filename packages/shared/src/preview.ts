@@ -1,7 +1,8 @@
-import { LINKEDIN_FOLD_CHARS, LINKEDIN_FOLD_LINES } from "./types";
+import { LINKEDIN_FOLD_CHARS, LINKEDIN_FOLD_CHARS_MOBILE, LINKEDIN_FOLD_LINES, type PreviewDevice } from "./types";
 
 /** Split a post into the part shown above LinkedIn's "...see more" fold and the rest. */
-export function splitAtFold(content: string): { visible: string; hidden: string } {
+export function splitAtFold(content: string, device: PreviewDevice = "desktop"): { visible: string; hidden: string } {
+  const maxChars = device === "mobile" ? LINKEDIN_FOLD_CHARS_MOBILE : LINKEDIN_FOLD_CHARS;
   const lines = content.split("\n");
   let visible = "";
   let lineCount = 0;
@@ -9,8 +10,8 @@ export function splitAtFold(content: string): { visible: string; hidden: string 
     const line = lines[i];
     const next = visible ? `${visible}\n${line}` : line;
     lineCount++;
-    if (next.length > LINKEDIN_FOLD_CHARS) {
-      const room = LINKEDIN_FOLD_CHARS - (visible ? visible.length + 1 : 0);
+    if (next.length > maxChars) {
+      const room = maxChars - (visible ? visible.length + 1 : 0);
       const cut = Math.max(0, room);
       visible = visible ? `${visible}\n${line.slice(0, cut)}` : line.slice(0, cut);
       return { visible, hidden: content.slice(visible.length) };

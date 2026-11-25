@@ -8,6 +8,11 @@ A personal app that helps you post on LinkedIn every day, in your own voice. It 
 - **Editor:** one-tap fixes (new hook, shorter, punchier, add CTA, ...) or a custom instruction, with undo/redo. A live LinkedIn preview shows where "…more" cuts the post, and a character counter enforces the 3000-character limit.
 - **Queue:** you set weekly posting times once. "Add to queue" picks the next free slot, and you can also schedule an exact time or post now.
 - **Streaks and reminders:** a daily streak, a weekly goal and a 12-week heatmap. If you haven't posted or queued anything by your reminder time, you get a macOS notification plus an in-app or browser notification.
+- **Images and quote cards:** attach an image (resized in the browser) or turn your hook into a 1080×1080 quote card.
+- **First comment:** add a comment, such as a link, that's posted right after the post goes live.
+- **Reliable publishing:** temporary LinkedIn errors retry automatically after 5, 15 and 60 minutes. Failed posts get a Retry button. You're warned 7 days and 1 day before your LinkedIn connection expires.
+- **Learns from what you publish:** your latest published posts are used as voice examples, and the style guide is re-learned every 5 posts.
+- **Installable app and push:** add it to your phone's home screen and get reminders and "posted/failed" alerts as push notifications.
 - **Switchable AI:** you can use your Claude login (no API key needed), an Anthropic API key, OpenAI, or Ollama.
 
 ## Architecture (mobile-ready)
@@ -65,7 +70,10 @@ Run these from `apps/api` (`cd apps/api`). Wrangler is already a project depende
    npx wrangler secret put OPENROUTER_API_KEY    # free models; and/or:
    npx wrangler secret put ANTHROPIC_API_KEY
    npx wrangler secret put ALLOWED_EMAILS        # optional: your LinkedIn email; otherwise the first sign-in owns the app
+   npx wrangler secret put VAPID_PRIVATE_KEY     # push notifications; see below
    ```
+   Push keys: run `node scripts/vapid-keys.mjs` once. Put `VAPID_PUBLIC_KEY` in `wrangler.jsonc` → `vars`, and set `VAPID_PRIVATE_KEY` as a secret. To reuse the keys already in your `.env`:
+   `grep '^VAPID_PRIVATE_KEY=' ../../.env | cut -d= -f2 | npx wrangler secret put VAPID_PRIVATE_KEY`
 4. **Deploy:** `npm run cf:deploy`. This builds the web app, applies database migrations, and deploys. It prints your URL, for example `https://postdaily.<you>.workers.dev`.
 5. **LinkedIn:** in your LinkedIn app's **Auth** tab, add the redirect URL `https://postdaily.<you>.workers.dev/api/auth/linkedin/callback`.
 6. Open the URL and sign in with LinkedIn. Your data starts empty on Cloudflare. Re-enter your style profile, then set your posting times (Queue → "Twice a day").

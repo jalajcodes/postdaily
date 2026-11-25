@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarPlus, Clock, Redo2, Send, Trash2, Undo2, Wand2 } from "lucide-react";
+import { CalendarPlus, Clock, ImagePlus, MessageSquareText, Quote, Redo2, RotateCcw, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
 import { LINKEDIN_MAX_CHARS, REWRITE_ACTIONS, type RewriteAction } from "@postdaily/shared";
 import { api, formatWhen } from "../lib/api";
 import { LinkedInPreview } from "../components/LinkedInPreview";
+import { prepareImage, quoteCard } from "../lib/image";
 import { Button, Card, ErrorText, Spinner, inputCls } from "../components/ui";
 
 const QUICK: RewriteAction[] = ["new_hook", "shorter", "longer", "punchier", "casual", "professional", "add_cta", "fix_formatting"];
@@ -31,14 +32,25 @@ export function EditorPage() {
   const [custom, setCustom] = useState("");
   const [when, setWhen] = useState("");
   const [saved, setSaved] = useState(true);
+  const [firstComment, setFirstComment] = useState("");
+  const [imageAlt, setImageAlt] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
   const loaded = useRef(false);
 
   useEffect(() => {
     if (post.data && !loaded.current) {
       setContent(post.data.content);
+      setFirstComment(post.data.firstComment ?? "");
+      setImageAlt(post.data.imageAlt ?? "");
       loaded.current = true;
     }
   }, [post.data]);
+
+  const image = useQuery({
+    queryKey: ["post-image", id],
+    queryFn: () => api.posts.getImage(id!),
+    enabled: !!post.data?.hasImage,
+  });
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["post", id] });
@@ -79,6 +91,7 @@ export function EditorPage() {
 
   const saveFirst = async () => {
     if (!saved) await save.mutateAsync(content);
+    if (firstComment !== (post.data?.firstComment ?? "")) await api.posts.update(id!, { firstComment });
   };
   // Random ±N min buffer: per-post choice, defaulting to the setting (or the queued post's current state).
   const [jitterChoice, setJitterChoice] = useState<boolean | null>(null);
@@ -106,6 +119,29 @@ export function EditorPage() {
     },
   });
 
+  const retry = useMutation({ mutationFn: () => api.posts.retry(id!), onSuccess: refresh });
+  const saveComment = useMutation({
+    mutationFn: (text: string) => api.posts.update(id!, { firstComment: text }),
+    onSuccess: refresh,
+  });
+  const saveAlt = useMutation({ mutationFn: (alt: string) => api.posts.update(id!, { imageAlt: alt }), onSuccess: refresh });
+  const setImage = useMutation({
+    mutationFn: async (dataUrl: string) => api.posts.setImage(id!, dataUrl, imageAlt || undefined),
+    onSuccess: (_p, dataUrl) => {
+      qc.setQueryData(["post-image", id], { dataUrl });
+      refresh();
+    },
+  });
+  const removeImage = useMutation({
+    mutationFn: () => api.posts.removeImage(id!),
+    onSuccess: () => {
+      qc.removeQueries({ queryKey: ["post-image", id] });
+      setImageAlt("");
+      refresh();
+    },
+  });
+  const [imageError, setImageError] = useState<unknown>(null);
+
   if (post.isLoading) return <Spinner />;
   if (!post.data) return <ErrorText error={post.error ?? "Post not found"} />;
   const p = post.data;
@@ -130,7 +166,23 @@ export function EditorPage() {
           <span className="ml-auto text-xs text-slate-400">{saved ? "Saved" : save.isPending ? "Saving…" : "Unsaved"}</span>
         </div>
 
-        {p.status === "failed" && p.error && <ErrorText error={`Publishing failed: ${p.error}`} />}
+        {p.status === "failed" && p.error && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+            <span className="min-w-0 flex-1">Publishing failed: {p.error}</span>
+            <Button variant="secondary" className="py-1 text-xs" onClick={() => retry.mutate()} loading={retry.isPending}>
+              <RotateCcw className="size-3.5" /> Retry now
+            </Button>
+          </div>
+        )}
+        <ErrorText error={retry.error} />
+        {p.status === "queued" && p.error && (
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">{p.error}</p>
+        )}
+        {isPublished && p.commentError && (
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            The post is live, but the first comment couldn't be added: {p.commentError}
+          </p>
+        )}
 
         <Card className="p-0">
           <textarea
@@ -216,10 +268,104 @@ export function EditorPage() {
             </div>
           </Card>
         )}
+
+        {!isPublished && (
+          <Card>
+            <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+              <ImagePlus className="size-4 text-brand-500" /> Image <span className="font-normal text-slate-400">(optional)</span>
+            </div>
+            {p.hasImage && image.data ? (
+              <div className="space-y-3">
+                <div className="relative">
+                  <img src={image.data.dataUrl} alt={imageAlt} className="max-h-72 w-full rounded-lg border border-slate-200 object-contain" />
+                  <button
+                    onClick={() => removeImage.mutate()}
+                    className="absolute top-2 right-2 rounded-full bg-white/90 p-1 text-slate-600 shadow hover:text-red-600"
+                    aria-label="Remove image"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
+                <input
+                  className={inputCls}
+                  placeholder="Alt text: describe the image for screen readers"
+                  value={imageAlt}
+                  onChange={(e) => setImageAlt(e.target.value)}
+                  onBlur={() => imageAlt !== (p.imageAlt ?? "") && saveAlt.mutate(imageAlt)}
+                />
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <input
+                  ref={fileInput}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!f) return;
+                    setImageError(null);
+                    try {
+                      setImage.mutate(await prepareImage(f));
+                    } catch (err) {
+                      setImageError(err);
+                    }
+                  }}
+                />
+                <Button variant="secondary" onClick={() => fileInput.current?.click()} loading={setImage.isPending}>
+                  <ImagePlus className="size-4" /> Upload image
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={!content.trim() || setImage.isPending}
+                  onClick={() => setImage.mutate(quoteCard(content, me.data?.name ?? ""))}
+                >
+                  <Quote className="size-4" /> Make a quote card from the hook
+                </Button>
+              </div>
+            )}
+            <div className="mt-2">
+              <ErrorText error={imageError ?? setImage.error ?? removeImage.error} />
+            </div>
+          </Card>
+        )}
+
+        {(!isPublished || p.firstComment) && (
+          <Card>
+            <div className="mb-1 flex items-center gap-2 text-sm font-medium">
+              <MessageSquareText className="size-4 text-brand-500" /> First comment{" "}
+              <span className="font-normal text-slate-400">(optional)</span>
+            </div>
+            <p className="mb-2 text-xs text-slate-500">
+              Posted right after your post. Put links here: posts with links in the body usually get less reach.
+            </p>
+            <textarea
+              className={`${inputCls} min-h-20 resize-y`}
+              placeholder="e.g. Full write-up here: https://…"
+              value={firstComment}
+              disabled={isPublished}
+              maxLength={1250}
+              onChange={(e) => setFirstComment(e.target.value)}
+              onBlur={() => firstComment !== (p.firstComment ?? "") && saveComment.mutate(firstComment)}
+            />
+            <div className="mt-1 flex justify-between text-xs text-slate-400">
+              <span>{saveComment.isPending ? "Saving…" : ""}</span>
+              <span>{firstComment.length} / 1250</span>
+            </div>
+            <ErrorText error={saveComment.error} />
+          </Card>
+        )}
       </div>
 
       <div className="space-y-4 lg:sticky lg:top-8 lg:self-start">
-        <LinkedInPreview content={content} name={me.data?.name ?? "You"} picture={me.data?.picture} />
+        <LinkedInPreview
+          content={content}
+          name={me.data?.name ?? "You"}
+          picture={me.data?.picture}
+          image={p.hasImage ? image.data?.dataUrl : null}
+          firstComment={firstComment}
+        />
 
         {!isPublished && (
           <Card className="space-y-3">

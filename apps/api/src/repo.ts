@@ -2,6 +2,7 @@
 import { DEFAULT_MODELS, type AIProviderId, type AppNotification, type Idea, type Post, type Profile, type Settings, type Slot, type User } from "@postdaily/shared";
 import { db, newId, nowIso, type Statement } from "./db";
 import { env } from "./runtime/env";
+import { sendPush } from "./lib/push";
 
 type Row = Record<string, any>;
 
@@ -25,6 +26,11 @@ export const toPost = (r: Row): Post => ({
   linkedinUrn: r.linkedin_urn,
   error: r.error,
   ideaId: r.idea_id,
+  retryCount: r.retry_count ?? 0,
+  firstComment: r.first_comment ?? null,
+  commentError: r.comment_error ?? null,
+  hasImage: Boolean(r.has_image),
+  imageAlt: r.image_alt ?? null,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 });
@@ -122,6 +128,7 @@ export async function getProfile(userId: string): Promise<Profile> {
     samplePosts: r.sample_posts,
     styleGuide: r.style_guide,
     bannedPhrases: JSON.parse(r.banned_phrases),
+    learnedCount: JSON.parse(r.learned_posts ?? "[]").length,
     updatedAt: r.updated_at,
   };
 }
@@ -153,6 +160,19 @@ export async function getPost(userId: string, id: string): Promise<Post | null> 
   return r ? toPost(r) : null;
 }
 
+/** Recently published posts kept as extra voice examples (newest first). */
+export async function getLearnedPosts(userId: string): Promise<string[]> {
+  const r = await db.get("SELECT learned_posts FROM profiles WHERE user_id = ?", userId);
+  return JSON.parse(r?.learned_posts ?? "[]");
+}
+
+/** Profile with recently published posts attached, for the AI writer. */
+export async function getVoiceProfile(userId: string) {
+  return { ...(await getProfile(userId)), learnedPosts: await getLearnedPosts(userId) };
+}
+
+/** In-app notification, plus a push to the user's phone/desktop if they enabled it. */
 export async function addNotification(userId: string, title: string, body: string) {
   await db.run("INSERT INTO notifications (id, user_id, title, body) VALUES (?, ?, ?, ?)", newId(), userId, title, body);
+  await sendPush(userId).catch((e) => console.warn("[push]", e));
 }

@@ -100,6 +100,8 @@ export interface Profile {
   samplePosts: string;
   styleGuide: string;
   bannedPhrases: string[];
+  /** How many of your recently published posts are used as voice examples. */
+  learnedCount: number;
   updatedAt: string | null;
 }
 
@@ -126,6 +128,13 @@ export interface Post {
   linkedinUrn: string | null;
   error: string | null;
   ideaId: string | null;
+  /** Automatic retries used after temporary LinkedIn errors. */
+  retryCount: number;
+  /** Comment posted right after the post (good for links). */
+  firstComment: string | null;
+  commentError: string | null;
+  hasImage: boolean;
+  imageAlt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -168,6 +177,11 @@ export interface AppNotification {
   createdAt: string;
 }
 
+export interface PushConfig {
+  enabled: boolean;
+  publicKey: string | null;
+}
+
 export interface AuthConfig {
   linkedinEnabled: boolean;
   devLoginEnabled: boolean;
@@ -176,4 +190,9 @@ export interface AuthConfig {
 /** LinkedIn shows roughly the first ~210 characters (or 3 lines) before "...see more". */
 export const LINKEDIN_FOLD_CHARS = 210;
 export const LINKEDIN_FOLD_LINES = 3;
+/** On phones LinkedIn cuts sooner. */
+export const LINKEDIN_FOLD_CHARS_MOBILE = 140;
+export type PreviewDevice = "desktop" | "mobile";
+/** Images are resized in the browser to stay under this (fits a D1 row). */
+export const MAX_IMAGE_BYTES = 900_000;
 export const LINKEDIN_MAX_CHARS = 3000;

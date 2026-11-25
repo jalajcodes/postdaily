@@ -10,6 +10,7 @@ import type {
   PostLength,
   Profile,
   ProviderStatus,
+  PushConfig,
   RewriteAction,
   Settings,
   Slot,
@@ -77,6 +78,7 @@ export function createClient(opts: ClientOptions) {
       get: () => req<Profile>("GET", "/profile"),
       update: (p: Partial<Profile>) => req<Profile>("PUT", "/profile", p),
       analyze: () => req<Profile>("POST", "/profile/analyze"),
+      clearLearned: () => req<Profile>("DELETE", "/profile/learned"),
     },
     ideas: {
       list: (status?: IdeaStatus) => req<Idea[]>("GET", `/ideas${status ? `?status=${status}` : ""}`),
@@ -97,18 +99,32 @@ export function createClient(opts: ClientOptions) {
       get: (id: string) => req<Post>("GET", `/posts/${id}`),
       create: (p: { content: string; ideaId?: string | null }) => req<Post>("POST", "/posts", p),
       /** `jitter` turns the random ±N minute buffer on/off for this post (defaults to the setting). */
-      update: (id: string, p: { content?: string; scheduledAt?: string | null; jitter?: boolean }) =>
+      update: (
+        id: string,
+        p: { content?: string; scheduledAt?: string | null; jitter?: boolean; firstComment?: string | null; imageAlt?: string | null },
+      ) =>
         req<Post>("PATCH", `/posts/${id}`, p),
       remove: (id: string) => req<{ ok: true }>("DELETE", `/posts/${id}`),
       queue: (id: string, opts?: { jitter?: boolean }) => req<Post>("POST", `/posts/${id}/queue`, opts ?? {}),
       unschedule: (id: string) => req<Post>("POST", `/posts/${id}/unschedule`),
       publish: (id: string) => req<Post>("POST", `/posts/${id}/publish`),
+      /** Retry a failed post now. */
+      retry: (id: string) => req<Post>("POST", `/posts/${id}/retry`),
+      getImage: (id: string) => req<{ dataUrl: string }>("GET", `/posts/${id}/image`),
+      setImage: (id: string, dataUrl: string, alt?: string) => req<Post>("PUT", `/posts/${id}/image`, { dataUrl, alt }),
+      removeImage: (id: string) => req<Post>("DELETE", `/posts/${id}/image`),
     },
     slots: {
       get: () => req<Slot[]>("GET", "/slots"),
       put: (slots: Slot[]) => req<Slot[]>("PUT", "/slots", { slots }),
     },
     stats: () => req<Stats>("GET", "/stats"),
+    push: {
+      config: () => req<PushConfig>("GET", "/push/config"),
+      subscribe: (endpoint: string) => req<{ ok: true }>("POST", "/push/subscribe", { endpoint }),
+      unsubscribe: (endpoint: string) => req<{ ok: true }>("POST", "/push/unsubscribe", { endpoint }),
+      test: () => req<{ sent: number }>("POST", "/push/test"),
+    },
     notifications: {
       list: () => req<AppNotification[]>("GET", "/notifications"),
       markRead: () => req<{ ok: true }>("POST", "/notifications/read"),

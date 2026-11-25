@@ -23,6 +23,7 @@ export function StylePage() {
     setDirty(false);
   };
   const save = useMutation({ mutationFn: (x: Profile) => api.profile.update(x), onSuccess: onSaved });
+  const clearLearned = useMutation({ mutationFn: api.profile.clearLearned, onSuccess: onSaved });
   const analyze = useMutation({
     mutationFn: async () => {
       await api.profile.update(p!);
@@ -105,7 +106,7 @@ export function StylePage() {
             />
             <div className="mt-2 flex items-center justify-between">
               <span className="text-xs text-slate-400">{p.samplePosts.length} chars</span>
-              <Button variant="secondary" onClick={() => analyze.mutate()} loading={analyze.isPending} disabled={p.samplePosts.length < 200}>
+              <Button variant="secondary" onClick={() => analyze.mutate()} loading={analyze.isPending} disabled={p.samplePosts.length < 200 && p.learnedCount === 0}>
                 <Sparkles className="size-4" /> Learn my style
               </Button>
             </div>
@@ -121,6 +122,27 @@ export function StylePage() {
               value={p.styleGuide}
               onChange={(e) => set("styleGuide", e.target.value)}
             />
+          </div>
+          <div className="rounded-lg bg-slate-50 px-3 py-2.5 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium">Learning from what you publish</span>
+              {p.learnedCount > 0 && (
+                <button
+                  className="text-xs text-slate-500 hover:text-red-600"
+                  onClick={() => {
+                    if (confirm("Forget the published posts PostDaily learned from?")) clearLearned.mutate();
+                  }}
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-slate-500">
+              {p.learnedCount > 0
+                ? `Your ${p.learnedCount} most recent published post${p.learnedCount === 1 ? " is" : "s are"} used as voice examples in every draft.`
+                : "Once you publish, your final posts (after your edits) are used as voice examples in every draft."}{" "}
+              Every 5 published posts, the style guide above is re-learned automatically.
+            </p>
           </div>
         </Card>
       </div>

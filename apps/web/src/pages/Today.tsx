@@ -9,6 +9,7 @@ export function TodayPage() {
   const stats = useQuery({ queryKey: ["stats"], queryFn: api.stats });
   const ideas = useQuery({ queryKey: ["ideas", "new"], queryFn: () => api.ideas.list("new") });
   const profile = useQuery({ queryKey: ["profile"], queryFn: api.profile.get });
+  const me = useQuery({ queryKey: ["me"], queryFn: api.auth.me });
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings.get });
 
   if (stats.isLoading) return <Spinner />;
@@ -34,6 +35,8 @@ export function TodayPage() {
           </Button>
         }
       />
+
+      <LinkedInBanner expiresAt={me.data?.linkedinConnected ? me.data.linkedinExpiresAt : null} />
 
       {profileEmpty && (
         <Link
@@ -160,5 +163,27 @@ function Heatmap({ data }: { data: { date: string; count: number }[] }) {
         </div>
       ))}
     </div>
+  );
+}
+
+/** Warns when the LinkedIn connection expires within 7 days (or already has). */
+function LinkedInBanner({ expiresAt }: { expiresAt: string | null | undefined }) {
+  if (!expiresAt) return null;
+  const days = (new Date(expiresAt).getTime() - Date.now()) / 86_400_000;
+  if (days > 7) return null;
+  const expired = days <= 0;
+  return (
+    <Link
+      to="/settings"
+      className={`mb-6 flex items-center justify-between gap-3 rounded-xl border px-5 py-4 text-sm ${
+        expired ? "border-red-200 bg-red-50 text-red-800 hover:bg-red-100" : "border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100"
+      }`}
+    >
+      <span>
+        <b>{expired ? "LinkedIn is disconnected." : `LinkedIn disconnects in ${days < 1 ? "less than a day" : `${Math.ceil(days)} days`}.`}</b>{" "}
+        {expired ? "Scheduled posts can't go out until you reconnect." : "Reconnect now so scheduled posts keep going out."}
+      </span>
+      <ArrowRight className="size-4 shrink-0" />
+    </Link>
   );
 }

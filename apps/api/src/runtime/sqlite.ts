@@ -10,19 +10,27 @@ export function sqliteDb(dbPath: string): Db {
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("foreign_keys = ON");
 
-  // Apply every migration file (they're idempotent), then add columns that older local DBs lack.
-  const dir = path.resolve(import.meta.dirname, "../../migrations");
-  for (const f of fs.readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) {
-    sqlite.exec(fs.readFileSync(path.join(dir, f), "utf8"));
-  }
+  // Columns added before migrations were tracked (only matters for DBs created by early versions).
   const addColumn = (table: string, column: string, ddl: string) => {
     const cols = sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
-    if (!cols.some((c) => c.name === column)) sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+    if (cols.length && !cols.some((c) => c.name === column)) sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
   };
   addColumn("settings", "jitter_enabled", "INTEGER NOT NULL DEFAULT 1");
   addColumn("settings", "jitter_minutes", "INTEGER NOT NULL DEFAULT 7");
   addColumn("posts", "jitter_minutes", "INTEGER NOT NULL DEFAULT 0");
   addColumn("posts", "publish_at", "TEXT");
+
+  // Apply each migration file once, in order (same files D1 uses).
+  sqlite.exec("CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)");
+  const applied = new Set((sqlite.prepare("SELECT name FROM _migrations").all() as { name: string }[]).map((r) => r.name));
+  const dir = path.resolve(import.meta.dirname, "../../migrations");
+  for (const f of fs.readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) {
+    if (applied.has(f)) continue;
+    sqlite.transaction(() => {
+      sqlite.exec(fs.readFileSync(path.join(dir, f), "utf8"));
+      sqlite.prepare("INSERT INTO _migrations (name, applied_at) VALUES (?, ?)").run(f, new Date().toISOString());
+    })();
+  }
 
   return {
     async get(sql, ...params) {

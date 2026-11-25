@@ -27,7 +27,11 @@ const LENGTH_GUIDE: Record<PostLength, string> = {
   long: "1500-2300 characters",
 };
 
-function voiceBlock(profile: Profile) {
+/** Profile plus recently published posts (newest first), used as extra voice examples. */
+export type VoiceProfile = Profile & { learnedPosts?: string[] };
+
+function voiceBlock(profile: VoiceProfile) {
+  const learned = (profile.learnedPosts ?? []).slice(0, 4).join("\n\n---\n\n");
   const banned = [...DEFAULT_BANNED, ...profile.bannedPhrases].filter(Boolean);
   return [
     profile.niche && `Author's niche/role: ${profile.niche}`,
@@ -37,13 +41,15 @@ function voiceBlock(profile: Profile) {
     profile.styleGuide && `Author's writing style guide (follow it closely):\n${profile.styleGuide}`,
     profile.samplePosts &&
       `Examples of the author's own past posts (match this voice, do not copy content):\n<examples>\n${profile.samplePosts.slice(0, 6000)}\n</examples>`,
+    learned &&
+      `The author's most recently published posts (their current voice, after their own edits; do not repeat these topics):\n<recent>\n${learned.slice(0, 5000)}\n</recent>`,
     `Never use these phrases or close variants: ${banned.map((b) => `"${b}"`).join(", ")}`,
   ]
     .filter(Boolean)
     .join("\n\n");
 }
 
-function systemPrompt(profile: Profile) {
+function systemPrompt(profile: VoiceProfile) {
   return `You ghost-write LinkedIn posts for one specific person. The posts must sound like a real human wrote them - this person - not like AI.
 
 LinkedIn craft rules:
@@ -100,7 +106,7 @@ async function expandInput(input: string): Promise<string> {
 
 export async function generateDrafts(
   settings: Settings,
-  profile: Profile,
+  profile: VoiceProfile,
   input: string,
   length: PostLength,
 ): Promise<Draft[]> {
@@ -144,7 +150,7 @@ const REWRITE_PROMPTS: Record<RewriteAction, string> = {
 
 export async function rewritePost(
   settings: Settings,
-  profile: Profile,
+  profile: VoiceProfile,
   content: string,
   action: RewriteAction,
   instruction?: string,
@@ -169,7 +175,7 @@ Respond with only the full edited post text - no preamble, no quotes, no explana
 
 export async function generateIdeas(
   settings: Settings,
-  profile: Profile,
+  profile: VoiceProfile,
   recentPosts: string[],
   existingIdeas: string[],
   count = 5,
@@ -191,13 +197,14 @@ Respond with only JSON: {"ideas":["...","..."]}`;
   return parseJson(text, z.object({ ideas: z.array(z.string()).min(1) })).ideas.slice(0, count);
 }
 
-export async function analyzeStyle(settings: Settings, profile: Profile): Promise<{ styleGuide: string; topics: string[] }> {
-  if (profile.samplePosts.trim().length < 200)
+export async function analyzeStyle(settings: Settings, profile: VoiceProfile): Promise<{ styleGuide: string; topics: string[] }> {
+  const corpus = [profile.samplePosts, ...(profile.learnedPosts ?? [])].filter((x) => x.trim()).join("\n\n---\n\n");
+  if (corpus.trim().length < 200)
     throw new AIError("Paste at least 2-3 of your past posts (200+ characters) so I can learn your style.");
   const prompt = `Study these LinkedIn posts written by one person and describe how they write, so another writer could imitate them.
 
 <posts>
-${profile.samplePosts.slice(0, 15000)}
+${corpus.slice(0, 15000)}
 </posts>
 
 Write a concise style guide as plain-text bullet lines starting with "- ", covering: tone and personality, typical hook style, sentence and paragraph length, formatting habits (line breaks, lists, arrows), use of emojis, use of hashtags, how posts end (questions, CTAs), recurring phrases or words they like, and things they never do.
