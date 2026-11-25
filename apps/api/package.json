@@ -7,9 +7,12 @@
     "dev": "tsx watch --env-file-if-exists=../../.env src/node.ts",
     "start": "tsx --env-file-if-exists=../../.env src/node.ts",
     "typecheck": "tsc -p .",
-    "cf:dev": "npm run build -w @postdaily/web && wrangler d1 migrations apply postdaily --local && wrangler dev --test-scheduled",
-    "cf:migrate": "wrangler d1 migrations apply postdaily --remote",
-    "cf:deploy": "npm run build -w @postdaily/web && wrangler d1 migrations apply postdaily --remote && wrangler deploy"
+    "cf:dev": "npm run build -w @postdaily/web && wrangler d1 migrations apply DB --local && wrangler dev --test-scheduled",
+    "cf:migrate": "wrangler d1 migrations apply DB --remote",
+    "cf:deploy": "npm run build -w @postdaily/web && wrangler d1 migrations apply DB --remote && wrangler deploy",
+    "test": "tsx --test test/*.test.ts",
+    "build": "npm run build -w @postdaily/web",
+    "deploy": "wrangler d1 migrations apply DB --remote && wrangler deploy"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.331",

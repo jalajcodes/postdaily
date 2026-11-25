@@ -9,6 +9,7 @@ import { Layout } from "./components/Layout";
 import { LoginPage, AuthCallbackPage } from "./pages/Login";
 import { TodayPage } from "./pages/Today";
 import { WritePage } from "./pages/Write";
+import { PlanPage } from "./pages/Plan";
 import { EditorPage } from "./pages/Editor";
 import { IdeasPage } from "./pages/Ideas";
 import { DraftsPage } from "./pages/Drafts";
@@ -42,6 +43,7 @@ createRoot(document.getElementById("root")!).render(
           >
             <Route index element={<TodayPage />} />
             <Route path="write" element={<WritePage />} />
+            <Route path="plan" element={<PlanPage />} />
             <Route path="posts/:id" element={<EditorPage />} />
             <Route path="drafts" element={<DraftsPage />} />
             <Route path="ideas" element={<IdeasPage />} />

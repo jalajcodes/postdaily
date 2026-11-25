@@ -1,18 +1,30 @@
 # PostDaily
 
-A personal app that helps you post on LinkedIn every day, in your own voice. It is inspired by wiral.social.
+[![CI](https://github.com/jalajcodes/postdaily/actions/workflows/ci.yml/badge.svg)](https://github.com/jalajcodes/postdaily/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+A personal app that helps you post on LinkedIn every day, in your own voice. It is inspired by wiral.social. It runs free on Cloudflare (or on your Mac) and works as an installable phone app.
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/jalajcodes/postdaily/tree/main/apps/api)
+
+| Today | Editor with live preview | Plan my week |
+|---|---|---|
+| ![Today: streaks, ideas and what's next](docs/screenshots/today.png) | ![Editor: hook variants, carousel and LinkedIn preview](docs/screenshots/editor.png) | ![Plan my week: a draft for every free slot](docs/screenshots/plan.png) |
 
 - **AI writer:** you drop in a thought, a story or a link, and get 3 drafts (Story, Lesson and Opinion) in your voice.
+- **Voice notes:** tap the mic and ramble; the browser transcribes it and the drafts clean up the filler.
+- **Plan my week:** set 2-5 content pillars, and one click writes a draft for every free posting slot in the next 7 days, rotating themes and formats. You review, edit, and schedule them in one go.
 - **Your style:** paste some of your past posts and it learns your style. You can edit the style guide, your topics and a "never say" list. Common AI clichés are always blocked.
 - **Idea bank:** 5 fresh ideas arrive every morning, based on your niche and what you've posted recently. You can also save your own ideas.
-- **Editor:** one-tap fixes (new hook, shorter, punchier, add CTA, ...) or a custom instruction, with undo/redo. A live LinkedIn preview shows where "…more" cuts the post, and a character counter enforces the 3000-character limit.
+- **Editor:** 3 alternative hooks on demand, one-tap fixes (shorter, punchier, add CTA, ...) or a custom instruction, with undo/redo. A live LinkedIn preview shows where "…more" cuts the post, and a character counter enforces the 3000-character limit.
 - **Queue:** you set weekly posting times once. "Add to queue" picks the next free slot, and you can also schedule an exact time or post now.
 - **Streaks and reminders:** a daily streak, a weekly goal and a 12-week heatmap. If you haven't posted or queued anything by your reminder time, you get a macOS notification plus an in-app or browser notification.
-- **Images and quote cards:** attach an image (resized in the browser) or turn your hook into a 1080×1080 quote card.
+- **Images, quote cards and carousels:** attach an image (resized in the browser), turn your hook into a 1080×1080 quote card, or turn the post into a swipeable PDF carousel. The AI outlines the slides, you edit them, and the PDF is built in your browser and posted with LinkedIn's Documents API.
 - **First comment:** add a comment, such as a link, that's posted right after the post goes live.
 - **Reliable publishing:** temporary LinkedIn errors retry automatically after 5, 15 and 60 minutes. Failed posts get a Retry button. You're warned 7 days and 1 day before your LinkedIn connection expires.
 - **Learns from what you publish:** your latest published posts are used as voice examples, and the style guide is re-learned every 5 posts.
 - **Installable app and push:** add it to your phone's home screen and get reminders and "posted/failed" alerts as push notifications.
+- **First-hour nudge:** 40 minutes after a post goes live, you get a push to go reply to comments (replies early on help reach). You can turn it off in Settings.
 - **Switchable AI:** you can use your Claude login (no API key needed), an Anthropic API key, OpenAI, or Ollama.
 
 ## Architecture (mobile-ready)
@@ -57,7 +69,25 @@ npm run build && npm start   # http://localhost:8787 (set WEB_URL=http://localho
 
 The scheduler runs inside the API process, so scheduled posts only go out while it is running. To keep it always on for free, deploy to Cloudflare (below).
 
+## Tests and CI
+
+```bash
+npm test          # API tests: real SQLite, only LinkedIn / OpenRouter / push are faked
+npm run typecheck
+```
+
+GitHub Actions runs typecheck, tests and a build on every push and pull request. On `main` it also deploys to Cloudflare once you add two repository secrets (Settings → Secrets and variables → Actions):
+
+- `CLOUDFLARE_ACCOUNT_ID`: shown on your Cloudflare dashboard's Workers page.
+- `CLOUDFLARE_API_TOKEN`: create one at dash.cloudflare.com/profile/api-tokens with the **Edit Cloudflare Workers** template, plus **D1: Edit** permission.
+
+Without them, the deploy job is skipped and CI still runs.
+
 ## Deploy to Cloudflare (free plan)
+
+**One click (beta):** the Deploy to Cloudflare button at the top forks the repo into your GitHub, creates the Worker and a D1 database, and asks for the secrets listed in `apps/api/.dev.vars.example`. Then do step 5 below (the LinkedIn redirect URL). If the button flow fails, use the manual steps.
+
+**Manual:**
 
 Run these from `apps/api` (`cd apps/api`). Wrangler is already a project dependency.
 

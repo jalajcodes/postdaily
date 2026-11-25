@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { LINKEDIN_MAX_CHARS, MAX_IMAGE_BYTES } from "@postdaily/shared";
+import { LINKEDIN_MAX_CHARS, MAX_DOCUMENT_BYTES, MAX_IMAGE_BYTES } from "@postdaily/shared";
 import { db, newId, nowIso } from "../db";
 import { getPost, toPost } from "../repo";
 import { nextFreeSlot, publishNow, schedulePost } from "../lib/schedule";
@@ -98,7 +98,7 @@ posts.put("/posts/:id/image", async (c) => {
       params: [p.id, dataUrl],
     },
     {
-      sql: "UPDATE posts SET has_image = 1, image_alt = COALESCE(?, image_alt), updated_at = ? WHERE id = ?",
+      sql: "UPDATE posts SET has_image = 1, media_type = 'image', document_title = NULL, carousel_slides = NULL, image_alt = COALESCE(?, image_alt), updated_at = ? WHERE id = ?",
       params: [alt?.trim() || null, nowIso(), p.id],
     },
   ]);
@@ -111,7 +111,39 @@ posts.delete("/posts/:id/image", async (c) => {
   if (!p) return c.json({ error: "Not found" }, 404);
   await db.batch([
     { sql: "DELETE FROM post_images WHERE post_id = ?", params: [p.id] },
-    { sql: "UPDATE posts SET has_image = 0, image_alt = NULL, updated_at = ? WHERE id = ?", params: [nowIso(), p.id] },
+    {
+      sql: "UPDATE posts SET has_image = 0, media_type = NULL, image_alt = NULL, document_title = NULL, carousel_slides = NULL, updated_at = ? WHERE id = ?",
+      params: [nowIso(), p.id],
+    },
+  ]);
+  return c.json(await getPost(uid, p.id));
+});
+
+// --- PDF carousel (replaces any image); built in the browser from the slides ---
+posts.put("/posts/:id/document", async (c) => {
+  const uid = c.get("userId");
+  const p = await getPost(uid, c.req.param("id"));
+  if (!p) return c.json({ error: "Not found" }, 404);
+  if (p.status === "published" || p.status === "publishing") return c.json({ error: "Post is already published" }, 400);
+  const { dataUrl, title, slides } = z
+    .object({
+      dataUrl: z
+        .string()
+        .regex(/^data:application\/pdf;base64,[A-Za-z0-9+/=]+$/, "Expected a PDF")
+        .max(Math.ceil(MAX_DOCUMENT_BYTES * 1.37) + 100, "Carousel is too large. Use fewer slides."),
+      title: z.string().trim().min(1).max(400),
+      slides: z.array(z.object({ heading: z.string().max(200), body: z.string().max(600) })).min(1).max(20),
+    })
+    .parse(await c.req.json());
+  await db.batch([
+    {
+      sql: "INSERT INTO post_images (post_id, data_url) VALUES (?, ?) ON CONFLICT(post_id) DO UPDATE SET data_url = excluded.data_url",
+      params: [p.id, dataUrl],
+    },
+    {
+      sql: "UPDATE posts SET has_image = 1, media_type = 'document', image_alt = NULL, document_title = ?, carousel_slides = ?, updated_at = ? WHERE id = ?",
+      params: [title, JSON.stringify(slides), nowIso(), p.id],
+    },
   ]);
   return c.json(await getPost(uid, p.id));
 });

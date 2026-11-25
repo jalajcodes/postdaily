@@ -47,8 +47,12 @@ export async function fetchUserInfo(accessToken: string) {
  * backslash-escaped or the post gets truncated. Hashtags become hashtag templates.
  */
 export function toLittleText(text: string) {
-  const escaped = text.replace(/[\\|{}@[\]()<>#*_~]/g, (c) => `\\${c}`);
-  return escaped.replace(/\\#([\p{L}\p{N}_]+)/gu, "{hashtag|\\#|$1}");
+  const escape = (t: string) => t.replace(/[\\|{}@[\]()<>#*_~]/g, (c) => `\\${c}`);
+  // Hashtags first, so a tag like #ship_it isn't cut at the (escaped) underscore.
+  return text
+    .split(/(#[\p{L}\p{N}_]+)/u)
+    .map((part, i) => (i % 2 ? `{hashtag|\\#|${escape(part.slice(1))}}` : escape(part)))
+    .join("");
 }
 
 /** A LinkedIn API error. `temporary` = safe to retry later (rate limit or LinkedIn outage). */
@@ -75,32 +79,60 @@ async function fail(what: string, res: Response): Promise<never> {
   throw new LinkedInError(`LinkedIn ${what} failed: ${res.status} ${(await res.text()).slice(0, 500)}`, res.status);
 }
 
-/** Upload an image (data URL) via the Images API and return its urn:li:image URN. */
-export async function uploadImage(accessToken: string, personSub: string, dataUrl: string): Promise<string> {
-  const init = await fetch("https://api.linkedin.com/rest/images?action=initializeUpload", {
+/** Upload a file (data URL) via the Images or Documents API and return its URN. */
+async function uploadAsset(kind: "image" | "document", accessToken: string, personSub: string, dataUrl: string) {
+  const init = await fetch(`https://api.linkedin.com/rest/${kind}s?action=initializeUpload`, {
     method: "POST",
     headers: restHeaders(accessToken),
     body: JSON.stringify({ initializeUploadRequest: { owner: `urn:li:person:${personSub}` } }),
   });
-  if (!init.ok) await fail("image upload setup", init);
-  const { value } = (await init.json()) as { value: { uploadUrl: string; image: string } };
+  if (!init.ok) await fail(`${kind} upload setup`, init);
+  const { value } = (await init.json()) as { value: { uploadUrl: string; image?: string; document?: string } };
 
   const [meta, b64] = dataUrl.split(",", 2);
   const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
   const put = await fetch(value.uploadUrl, {
     method: "PUT",
-    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": meta.match(/data:([^;]+)/)?.[1] ?? "image/jpeg" },
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": meta.match(/data:([^;]+)/)?.[1] ?? "application/octet-stream" },
     body: bytes,
   });
-  if (!put.ok) await fail("image upload", put);
-  return value.image;
+  if (!put.ok) await fail(`${kind} upload`, put);
+  return (kind === "image" ? value.image : value.document)!;
 }
+
+export const uploadImage = (accessToken: string, personSub: string, dataUrl: string) =>
+  uploadAsset("image", accessToken, personSub, dataUrl);
+
+/**
+ * Upload a PDF via the Documents API. LinkedIn processes documents after upload, so wait
+ * (briefly) until it reports AVAILABLE before it's attached to a post.
+ */
+export async function uploadDocument(
+  accessToken: string,
+  personSub: string,
+  dataUrl: string,
+  { tries = 8, delayMs = 1500 } = {},
+): Promise<string> {
+  const urn = await uploadAsset("document", accessToken, personSub, dataUrl);
+  for (let i = 0; i < tries; i++) {
+    const res = await fetch(`https://api.linkedin.com/rest/documents/${encodeURIComponent(urn)}`, { headers: restHeaders(accessToken) });
+    if (res.ok) {
+      const { status } = (await res.json()) as { status?: string };
+      if (status === "AVAILABLE") return urn;
+      if (status === "PROCESSING_FAILED") throw new LinkedInError("LinkedIn couldn't process the carousel PDF.", 422);
+    }
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return urn; // Still processing: try posting anyway; LinkedIn usually accepts it.
+}
+
+export type PostMedia = { urn: string; alt?: string | null; title?: string | null };
 
 export async function publishPost(
   accessToken: string,
   personSub: string,
   content: string,
-  image?: { urn: string; alt?: string | null },
+  media?: PostMedia,
 ): Promise<string> {
   const res = await fetch("https://api.linkedin.com/rest/posts", {
     method: "POST",
@@ -110,7 +142,17 @@ export async function publishPost(
       commentary: toLittleText(content),
       visibility: "PUBLIC",
       distribution: { feedDistribution: "MAIN_FEED", targetEntities: [], thirdPartyDistributionChannels: [] },
-      ...(image ? { content: { media: { id: image.urn, ...(image.alt ? { altText: image.alt.slice(0, 4000) } : {}) } } } : {}),
+      ...(media
+        ? {
+            content: {
+              media: {
+                id: media.urn,
+                ...(media.title ? { title: media.title.slice(0, 400) } : {}),
+                ...(media.alt ? { altText: media.alt.slice(0, 4000) } : {}),
+              },
+            },
+          }
+        : {}),
       lifecycleState: "PUBLISHED",
       isReshareDisabledByAuthor: false,
     }),

@@ -35,7 +35,7 @@
     "LINKEDIN_API_VERSION": "202606",
     // Push notifications. The matching private key is a secret: npx wrangler secret put VAPID_PRIVATE_KEY
     "VAPID_PUBLIC_KEY": "BFr5zSc4JaqwIyF16AhhNI-U7P7wJx8Lrzv8n1IeuEQNnLDkl9m1117_IqyUN3G1hGai9TOBuk8UlcoSNkAWXn8",
-    "VAPID_SUBJECT": "https://postdaily.coders.workers.dev"
+    "VAPID_SUBJECT": "https://postdaily.jalaj.fyi"
   },
 
   "observability": { "enabled": true }

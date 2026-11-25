@@ -2,10 +2,13 @@
 import type {
   AppNotification,
   AuthConfig,
+  Carousel,
+  CarouselSlide,
   Draft,
   Idea,
   IdeaStatus,
   ModelOption,
+  PlannedPost,
   Post,
   PostLength,
   Profile,
@@ -93,6 +96,16 @@ export function createClient(opts: ClientOptions) {
         req<{ drafts: Draft[] }>("POST", "/ai/drafts", { input, length }),
       rewrite: (content: string, action: RewriteAction, instruction?: string) =>
         req<{ content: string }>("POST", "/ai/rewrite", { content, action, instruction }),
+      hooks: (content: string) => req<{ hooks: string[] }>("POST", "/ai/hooks", { content }),
+      carousel: (content: string) => req<Carousel>("POST", "/ai/carousel", { content }),
+    },
+    plan: {
+      /** Free posting slots in the next `days` days (max 10). */
+      slots: (days = 7) => req<{ slots: string[] }>("GET", `/plan/slots?days=${days}`),
+      /** Write one draft per free slot, rotating through your content pillars. */
+      /** `exclude`: slots already covered by drafts from an earlier, partial plan. */
+      week: (days = 7, exclude: string[] = []) => req<{ items: PlannedPost[]; missing: number }>("POST", "/plan/week", { days, exclude }),
+      schedule: (items: { postId: string; scheduledAt: string }[]) => req<{ posts: Post[] }>("POST", "/plan/schedule", { items }),
     },
     posts: {
       list: (status?: string) => req<Post[]>("GET", `/posts${status ? `?status=${status}` : ""}`),
@@ -112,7 +125,10 @@ export function createClient(opts: ClientOptions) {
       retry: (id: string) => req<Post>("POST", `/posts/${id}/retry`),
       getImage: (id: string) => req<{ dataUrl: string }>("GET", `/posts/${id}/image`),
       setImage: (id: string, dataUrl: string, alt?: string) => req<Post>("PUT", `/posts/${id}/image`, { dataUrl, alt }),
+      /** Removes the post's image or carousel. */
       removeImage: (id: string) => req<Post>("DELETE", `/posts/${id}/image`),
+      setDocument: (id: string, doc: { dataUrl: string; title: string; slides: CarouselSlide[] }) =>
+        req<Post>("PUT", `/posts/${id}/document`, doc),
     },
     slots: {
       get: () => req<Slot[]>("GET", "/slots"),

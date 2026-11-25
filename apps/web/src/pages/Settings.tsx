@@ -194,6 +194,13 @@ export function SettingsPage() {
                 post in the editor.
               </p>
             </div>
+            <div>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={s.engagementNudge} onChange={(e) => set("engagementNudge", e.target.checked)} />
+                Nudge me to reply to comments 40 minutes after a post goes live
+              </label>
+              <p className="mt-1 ml-6 text-xs text-slate-500">Replying in the first hour keeps the conversation (and reach) going.</p>
+            </div>
             {"Notification" in window && perm !== "granted" && (
               <Button variant="secondary" onClick={() => Notification.requestPermission().then(setPerm)}>
                 Enable browser notifications

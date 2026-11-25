@@ -68,6 +68,8 @@ export interface Settings {
   /** Shift each scheduled post by a random amount within ±jitterMinutes. */
   jitterEnabled: boolean;
   jitterMinutes: number;
+  /** Push a "reply to comments now" nudge ~40 minutes after a post goes live. */
+  engagementNudge: boolean;
 }
 
 /**
@@ -102,6 +104,8 @@ export interface Profile {
   bannedPhrases: string[];
   /** How many of your recently published posts are used as voice examples. */
   learnedCount: number;
+  /** Content pillars: the 2-5 recurring themes "Plan my week" rotates through. */
+  pillars: string[];
   updatedAt: string | null;
 }
 
@@ -135,6 +139,10 @@ export interface Post {
   commentError: string | null;
   hasImage: boolean;
   imageAlt: string | null;
+  /** A PDF carousel is attached instead of an image. */
+  hasDocument: boolean;
+  documentTitle: string | null;
+  carouselSlides: CarouselSlide[] | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -143,6 +151,23 @@ export interface Slot {
   id?: string;
   dayOfWeek: number; // 1 = Monday ... 7 = Sunday (ISO)
   time: string; // "HH:MM"
+}
+
+export interface CarouselSlide {
+  heading: string;
+  body: string;
+}
+
+export interface Carousel {
+  title: string;
+  slides: CarouselSlide[];
+}
+
+/** One post from "Plan my week": a saved draft and the slot it's meant for. */
+export interface PlannedPost {
+  post: Post;
+  pillar: string;
+  slot: string;
 }
 
 export interface Draft {
@@ -196,3 +221,7 @@ export type PreviewDevice = "desktop" | "mobile";
 /** Images are resized in the browser to stay under this (fits a D1 row). */
 export const MAX_IMAGE_BYTES = 900_000;
 export const LINKEDIN_MAX_CHARS = 3000;
+/** Carousel PDFs are stored as base64 in a D1 row (2 MB max), so keep the PDF under this. */
+export const MAX_DOCUMENT_BYTES = 1_400_000;
+/** Minutes after publishing to send the "reply to comments" nudge. */
+export const NUDGE_AFTER_MIN = 40;

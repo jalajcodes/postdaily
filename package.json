@@ -14,7 +14,8 @@
     "start": "npm run start -w @postdaily/api",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "cf:dev": "npm run cf:dev -w @postdaily/api",
-    "cf:deploy": "npm run cf:deploy -w @postdaily/api"
+    "cf:deploy": "npm run cf:deploy -w @postdaily/api",
+    "test": "npm test -w @postdaily/api"
   },
   "devDependencies": {
     "concurrently": "^10.0.7",

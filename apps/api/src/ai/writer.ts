@@ -1,6 +1,6 @@
 // Prompt building and the AI features: drafts, rewrites, ideas, style analysis.
 import { z } from "zod";
-import type { Draft, PostLength, Profile, RewriteAction, Settings } from "@postdaily/shared";
+import type { Carousel, Draft, PostLength, Profile, RewriteAction, Settings } from "@postdaily/shared";
 import { AIError, complete } from "./providers";
 
 /** Phrases that make a post sound machine-written. Always avoided. */
@@ -72,11 +72,49 @@ function parseJson<T>(text: string, schema: z.ZodType<T>): T {
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
   if (start === -1 || end === -1) throw new AIError("The AI response was not valid JSON. Try again.");
+  const candidate = raw.slice(start, end + 1);
+  let value: unknown;
   try {
-    return schema.parse(JSON.parse(raw.slice(start, end + 1)));
+    value = JSON.parse(candidate);
   } catch {
+    try {
+      // Models often put real line breaks inside long strings, which isn't valid JSON.
+      value = JSON.parse(escapeControlCharsInStrings(candidate));
+    } catch (e) {
+      console.warn("[ai] invalid JSON:", (e as Error).message, JSON.stringify(candidate.slice(0, 300)));
+      throw new AIError("The AI response was not valid JSON. Try again.");
+    }
+  }
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) {
+    console.warn("[ai] unexpected shape:", parsed.error.issues[0]?.message, JSON.stringify(candidate.slice(0, 300)));
     throw new AIError("The AI response had an unexpected shape. Try again.");
   }
+  return parsed.data;
+}
+
+/** Escape raw newlines/tabs that appear inside JSON string literals. */
+export function escapeControlCharsInStrings(json: string) {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (const ch of json) {
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      else if (ch === "\n") {
+        out += "\\n";
+        continue;
+      } else if (ch === "\r") continue;
+      else if (ch === "\t") {
+        out += "\\t";
+        continue;
+      }
+    } else if (ch === '"') inString = true;
+    out += ch;
+  }
+  return out;
 }
 
 const stripMarkdown = (s: string) => s.replace(/\*\*(.+?)\*\*/g, "$1").replace(/^#+\s*/gm, "").trim();
@@ -121,6 +159,8 @@ Use three different angles:
 <input>
 ${expanded}
 </input>
+
+The input may be rough notes or a spoken voice-note transcript with filler words and false starts. Keep the substance and the author's own details; drop the filler.
 
 Respond with only JSON in this exact shape:
 {"drafts":[{"angle":"Story","content":"..."},{"angle":"Lesson","content":"..."},{"angle":"Opinion","content":"..."}]}
@@ -219,4 +259,100 @@ Respond with only JSON: {"styleGuide":"- ...\\n- ...","topics":["..."]}`;
     effort: "medium",
   });
   return parseJson(text, z.object({ styleGuide: z.string(), topics: z.array(z.string()) }));
+}
+
+/** Three alternative opening hooks for a post. */
+export async function generateHooks(settings: Settings, profile: VoiceProfile, content: string): Promise<string[]> {
+  const prompt = `Write 3 alternative opening hooks for this LinkedIn post. The hook is the first 1-2 lines shown above "...see more" (under 200 characters).
+
+Make each one a different style: a specific surprising claim, a short story opening, and a direct question or contrarian take. They must fit the rest of the post, which stays as is.
+
+<post>
+${content}
+</post>
+
+Respond with only JSON: {"hooks":["...","...","..."]}. Use \\n for a line break inside a hook.`;
+  const text = await complete(settings.aiProvider, {
+    system: systemPrompt(profile),
+    prompt,
+    model: settings.aiModel,
+    effort: "low",
+  });
+  return parseJson(text, z.object({ hooks: z.array(z.string()).min(1) }))
+    .hooks.map((h) => stripMarkdown(h))
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
+/** Turn a post into a 5-8 slide carousel outline (cover, one idea per slide, closing slide). */
+export async function generateCarousel(settings: Settings, profile: VoiceProfile, content: string): Promise<Carousel> {
+  const prompt = `Turn this LinkedIn post into a document carousel (a swipeable PDF) of 5 to 8 slides.
+
+- Slide 1 is the cover: a short, bold heading (max 8 words) that makes people swipe, and an optional one-line subtitle as the body.
+- Middle slides: one idea each. Heading max 8 words; body max 30 words, plain sentences.
+- Last slide: a takeaway or question that invites comments (body can suggest following the author).
+- No emojis, no hashtags, no markdown, no slide numbers.
+
+<post>
+${content}
+</post>
+
+Respond with only JSON: {"title":"short document title","slides":[{"heading":"...","body":"..."}]}`;
+  const text = await complete(settings.aiProvider, {
+    system: systemPrompt(profile),
+    prompt,
+    model: settings.aiModel,
+    effort: "low",
+  });
+  const parsed = parseJson(
+    text,
+    z.object({ title: z.string(), slides: z.array(z.object({ heading: z.string(), body: z.string().default("") })).min(2) }),
+  );
+  return {
+    title: stripMarkdown(parsed.title).slice(0, 120),
+    slides: parsed.slides.slice(0, 10).map((s) => ({ heading: stripMarkdown(s.heading), body: stripMarkdown(s.body) })),
+  };
+}
+
+/** Formats rotated across a planned week, so posts written in parallel don't come out alike. */
+export const PLAN_FORMATS = [
+  "a personal story with a turning point",
+  "a practical lesson with clear takeaways",
+  "a clear, slightly contrarian opinion",
+  "a step-by-step how-to",
+  "a behind-the-scenes look at how the work actually happens",
+  "a mistake the author made and what changed after",
+  "a question to the audience, framed by the author's own experience",
+];
+
+/** Write one post per item (theme + format), all different. */
+export async function generatePlannedPosts(
+  settings: Settings,
+  profile: VoiceProfile,
+  items: { pillar: string; format: string }[],
+  recentPosts: string[],
+): Promise<string[]> {
+  const prompt = `Write ${items.length} complete LinkedIn posts for this author's upcoming week, each ${LENGTH_GUIDE[settings.defaultLength]}.
+
+One post per line below, in order (theme | format):
+${items.map((it, i) => `${i + 1}. ${it.pillar} | format: ${it.format}`).join("\n")}
+
+Be specific to the author; if a post needs a personal detail you don't have, write around it rather than inventing facts.
+${recentPosts.length ? `\nRecent posts (don't repeat these):\n${recentPosts.map((p) => `- ${p.slice(0, 140).replace(/\n/g, " ")}`).join("\n")}\n` : ""}
+Respond with only JSON: {"posts":["full post 1","full post 2"]} with exactly ${items.length} posts in the same order. Use \\n for line breaks.`;
+  const text = await complete(settings.aiProvider, {
+    system: systemPrompt(profile),
+    prompt,
+    model: settings.aiModel,
+    effort: "medium",
+  });
+  // Some models wrap each post in an object; accept {"content"} / {"text"} / {"post"} too.
+  const item = z.union([
+    z.string(),
+    z.object({ content: z.string() }).transform((o) => o.content),
+    z.object({ text: z.string() }).transform((o) => o.text),
+    z.object({ post: z.string() }).transform((o) => o.post),
+  ]);
+  const posts = parseJson(text, z.object({ posts: z.array(item).min(1) })).posts.map(stripMarkdown);
+  return posts.slice(0, items.length);
 }

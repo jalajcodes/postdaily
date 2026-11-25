@@ -29,8 +29,11 @@ export const toPost = (r: Row): Post => ({
   retryCount: r.retry_count ?? 0,
   firstComment: r.first_comment ?? null,
   commentError: r.comment_error ?? null,
-  hasImage: Boolean(r.has_image),
+  hasImage: Boolean(r.has_image) && r.media_type !== "document",
   imageAlt: r.image_alt ?? null,
+  hasDocument: Boolean(r.has_image) && r.media_type === "document",
+  documentTitle: r.document_title ?? null,
+  carouselSlides: r.carousel_slides ? JSON.parse(r.carousel_slides) : null,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 });
@@ -88,6 +91,7 @@ export async function getSettings(userId: string): Promise<Settings> {
     dailyIdeas: Boolean(r.daily_ideas),
     jitterEnabled: Boolean(r.jitter_enabled),
     jitterMinutes: r.jitter_minutes,
+    engagementNudge: Boolean(r.engagement_nudge ?? 1),
   };
 }
 
@@ -102,6 +106,7 @@ const SETTINGS_COLUMNS: Record<keyof Settings, string> = {
   dailyIdeas: "daily_ideas",
   jitterEnabled: "jitter_enabled",
   jitterMinutes: "jitter_minutes",
+  engagementNudge: "engagement_nudge",
 };
 
 export async function updateSettings(userId: string, s: Partial<Settings>) {
@@ -129,6 +134,7 @@ export async function getProfile(userId: string): Promise<Profile> {
     styleGuide: r.style_guide,
     bannedPhrases: JSON.parse(r.banned_phrases),
     learnedCount: JSON.parse(r.learned_posts ?? "[]").length,
+    pillars: JSON.parse(r.pillars ?? "[]"),
     updatedAt: r.updated_at,
   };
 }
@@ -136,7 +142,7 @@ export async function getProfile(userId: string): Promise<Profile> {
 export async function updateProfile(userId: string, p: Partial<Profile>) {
   const next = { ...(await getProfile(userId)), ...p };
   await db.run(
-    `UPDATE profiles SET niche=?, audience=?, goals=?, topics=?, sample_posts=?, style_guide=?, banned_phrases=?, updated_at=? WHERE user_id=?`,
+    `UPDATE profiles SET niche=?, audience=?, goals=?, topics=?, sample_posts=?, style_guide=?, banned_phrases=?, pillars=?, updated_at=? WHERE user_id=?`,
     next.niche,
     next.audience,
     next.goals,
@@ -144,6 +150,7 @@ export async function updateProfile(userId: string, p: Partial<Profile>) {
     next.samplePosts,
     next.styleGuide,
     JSON.stringify(next.bannedPhrases ?? []),
+    JSON.stringify(next.pillars ?? []),
     nowIso(),
     userId,
   );

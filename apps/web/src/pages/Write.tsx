@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookmarkPlus, Check, FileText, Sparkles } from "lucide-react";
+import { BookmarkPlus, Check, FileText, Mic, Sparkles, Square } from "lucide-react";
 import type { Draft, PostLength } from "@postdaily/shared";
 import { api } from "../lib/api";
+import { speechSupported, startDictation } from "../lib/speech";
 import { Button, Card, ErrorText, PageHeader, inputCls } from "../components/ui";
 
 export function WritePage() {
@@ -23,6 +24,29 @@ export function WritePage() {
   }, [ideas.data, ideaId]);
 
   const len = length ?? settings.data?.defaultLength ?? "medium";
+
+  // Voice note: dictated text is appended to the input as you speak.
+  const [listening, setListening] = useState(false);
+  const [interim, setInterim] = useState("");
+  const [micError, setMicError] = useState<string | null>(null);
+  const stopRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopRef.current?.(), []);
+  const toggleMic = () => {
+    if (listening) return stopRef.current?.();
+    setMicError(null);
+    setListening(true);
+    stopRef.current = startDictation(
+      (finalText, guess) => {
+        if (finalText) setInput((v) => (v && !/\s$/.test(v) ? `${v} ` : v) + finalText.trim());
+        setInterim(guess);
+      },
+      (err) => {
+        setListening(false);
+        setInterim("");
+        if (err) setMicError(err);
+      },
+    );
+  };
 
   const generate = useMutation({
     mutationFn: () => api.ai.drafts(input, len),
@@ -57,8 +81,9 @@ export function WritePage() {
 
   return (
     <>
-      <PageHeader title="Write" subtitle="Drop in a thought, a story, or a link. Get three drafts in your voice." />
+      <PageHeader title="Write" subtitle="Drop in a thought, a story, or a link, or just talk. Get three drafts in your voice." />
       <Card>
+        <div className="relative">
         <textarea
           className={`${inputCls} min-h-36 resize-y text-[15px]`}
           placeholder={"e.g. Shipped a feature in 2 days that we'd planned for 2 weeks. What made the difference was...\n\nor paste a link to an article"}
@@ -68,6 +93,26 @@ export function WritePage() {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && input.trim()) generate.mutate();
           }}
         />
+          {speechSupported() && (
+            <button
+              type="button"
+              onClick={toggleMic}
+              className={`absolute right-2 bottom-3 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium shadow-sm ${
+                listening ? "animate-pulse bg-red-600 text-white" : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+              aria-pressed={listening}
+            >
+              {listening ? <Square className="size-3.5" /> : <Mic className="size-3.5" />}
+              {listening ? "Stop" : "Voice note"}
+            </button>
+          )}
+        </div>
+        {(listening || interim) && (
+          <p className="mt-2 text-sm text-slate-500">
+            {interim ? <i>{interim}</i> : "Listening… just ramble. Filler words are fine, the drafts clean them up."}
+          </p>
+        )}
+        {micError && <p className="mt-2 text-sm text-amber-700">{micError}</p>}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex rounded-lg border border-slate-200 p-0.5 text-sm">
             {(["short", "medium", "long"] as const).map((l) => (

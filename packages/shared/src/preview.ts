@@ -28,3 +28,20 @@ export function splitAtFold(content: string, device: PreviewDevice = "desktop"):
 export function hookOf(content: string): string {
   return splitAtFold(content).visible;
 }
+
+/**
+ * Replace the post's opening hook with `hook`, keeping the rest as is. A hook with N
+ * paragraphs replaces the post's first N paragraphs (at least one). If the post has no
+ * blank lines, only its first line is replaced.
+ */
+export function replaceHook(content: string, hook: string): string {
+  const paras = (t: string) => t.trim().split(/\n[ \t]*\n\s*/);
+  const newHook = hook.trim();
+  const body = paras(content);
+  if (body.length === 1) {
+    const nl = body[0].indexOf("\n");
+    return nl === -1 ? newHook : `${newHook}\n${body[0].slice(nl + 1)}`;
+  }
+  const n = Math.min(paras(newHook).length, body.length - 1);
+  return [newHook, ...body.slice(Math.max(1, n))].join("\n\n");
+}

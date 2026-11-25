@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, CalendarClock, FileText, Flame, Lightbulb, LogOut, PenLine, Settings, Sparkles, Sun } from "lucide-react";
+import { Bell, CalendarClock, CalendarRange, FileText, Flame, Lightbulb, LogOut, PenLine, Settings, Sparkles, Sun } from "lucide-react";
 import { api, tokenStore } from "../lib/api";
 
 const nav = [
   { to: "/", label: "Today", icon: Sun, end: true },
   { to: "/write", label: "Write", icon: PenLine },
+  { to: "/plan", label: "Plan week", icon: CalendarRange },
   { to: "/drafts", label: "Drafts", icon: FileText },
   { to: "/ideas", label: "Ideas", icon: Lightbulb },
   { to: "/queue", label: "Queue", icon: CalendarClock },

@@ -1,11 +1,30 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { AI_PROVIDERS, POST_LENGTHS, REWRITE_ACTIONS } from "@postdaily/shared";
+import type { PlannedPost } from "@postdaily/shared";
 import { db, newId, type Statement } from "../db";
-import { getProfile, getSettings, getSlots, getVoiceProfile, toNotification, updateProfile, updateSettings } from "../repo";
+import {
+  getLearnedPosts,
+  getPost,
+  getProfile,
+  getSettings,
+  getSlots,
+  getVoiceProfile,
+  toNotification,
+  updateProfile,
+  updateSettings,
+} from "../repo";
 import { listOpenRouterModels, providerStatuses } from "../ai/providers";
-import { analyzeStyle, generateDrafts, rewritePost } from "../ai/writer";
-import { computeStats } from "../lib/schedule";
+import {
+  analyzeStyle,
+  generateCarousel,
+  generateDrafts,
+  generateHooks,
+  generatePlannedPosts,
+  PLAN_FORMATS,
+  rewritePost,
+} from "../ai/writer";
+import { computeStats, freeSlots, schedulePost } from "../lib/schedule";
 import { pushEnabled, saveSubscription, sendPush } from "../lib/push";
 import { env } from "../runtime/env";
 import type { AppEnv } from "../lib/auth";
@@ -34,6 +53,7 @@ main.put("/settings", async (c) => {
       dailyIdeas: z.boolean(),
       jitterEnabled: z.boolean(),
       jitterMinutes: z.number().int().min(1).max(30),
+      engagementNudge: z.boolean(),
     })
     .partial()
     .parse(await c.req.json());
@@ -56,6 +76,7 @@ main.put("/profile", async (c) => {
       samplePosts: z.string(),
       styleGuide: z.string(),
       bannedPhrases: z.array(z.string()),
+      pillars: z.array(z.string().trim().min(1).max(120)).max(8),
     })
     .partial()
     .parse(await c.req.json());
@@ -94,6 +115,79 @@ main.post("/ai/rewrite", async (c) => {
   return c.json({
     content: await rewritePost(await getSettings(uid), await getVoiceProfile(uid), content, action, instruction),
   });
+});
+
+main.post("/ai/hooks", async (c) => {
+  const uid = c.get("userId");
+  const { content } = z.object({ content: z.string().min(20, "Write a bit more first") }).parse(await c.req.json());
+  return c.json({ hooks: await generateHooks(await getSettings(uid), await getVoiceProfile(uid), content) });
+});
+main.post("/ai/carousel", async (c) => {
+  const uid = c.get("userId");
+  const { content } = z.object({ content: z.string().min(50, "Write the post first") }).parse(await c.req.json());
+  return c.json(await generateCarousel(await getSettings(uid), await getVoiceProfile(uid), content));
+});
+
+// --- Plan my week: one draft per free slot, rotating through your content pillars ---
+const PLAN_MAX = 10;
+const PLAN_CHUNK = 2; // posts per AI call (calls run in parallel; small chunks finish faster on free models)
+
+main.get("/plan/slots", async (c) => {
+  const days = Math.min(14, Math.max(1, Number(c.req.query("days")) || 7));
+  return c.json({ slots: await freeSlots(c.get("userId"), days, PLAN_MAX) });
+});
+main.post("/plan/week", async (c) => {
+  const uid = c.get("userId");
+  const { days, exclude } = z
+    .object({ days: z.number().int().min(1).max(14).default(7), exclude: z.array(z.string()).max(50).default([]) })
+    .parse(await c.req.json().catch(() => ({})));
+  // `exclude`: slots that already have a fresh draft on screen (from an earlier, partial plan).
+  const skip = new Set(exclude.map((s) => new Date(s).toISOString()));
+  const slots = (await freeSlots(uid, days, PLAN_MAX + skip.size)).filter((s) => !skip.has(s)).slice(0, PLAN_MAX);
+  if (!slots.length) return c.json({ error: `No free posting slots in the next ${days} days. Add posting times in Queue.` }, 400);
+  const profile = await getVoiceProfile(uid);
+  const pillars = profile.pillars.length ? profile.pillars : profile.topics;
+  if (!pillars.length) return c.json({ error: "Add a few content pillars first." }, 400);
+
+  // Rotate formats on a different cycle than pillars, so theme+format pairs vary across the week.
+  const plan = slots.map((slot, i) => ({ slot, pillar: pillars[i % pillars.length], format: PLAN_FORMATS[i % PLAN_FORMATS.length] }));
+  const recent = [
+    ...(await getLearnedPosts(uid)),
+    ...(await db.all<{ content: string }>("SELECT content FROM posts WHERE user_id = ? AND status IN ('queued','draft') ORDER BY updated_at DESC LIMIT 6", uid)).map((r) => r.content),
+  ].slice(0, 10);
+  const settings = await getSettings(uid);
+  const chunks = Array.from({ length: Math.ceil(plan.length / PLAN_CHUNK) }, (_, i) => plan.slice(i * PLAN_CHUNK, (i + 1) * PLAN_CHUNK));
+  // Free models fail now and then (busy, malformed JSON): retry a failed chunk once.
+  const write = (chunk: typeof plan) => generatePlannedPosts(settings, profile, chunk, recent);
+  const results = await Promise.allSettled(chunks.map((chunk) => write(chunk).catch(() => write(chunk))));
+  for (const r of results) if (r.status === "rejected") console.warn("[plan] chunk failed:", (r.reason as Error)?.message);
+  if (results.every((r) => r.status === "rejected")) throw (results[0] as PromiseRejectedResult).reason;
+
+  const items: PlannedPost[] = [];
+  for (const [ci, r] of results.entries()) {
+    if (r.status !== "fulfilled") continue;
+    for (const [i, content] of r.value.entries()) {
+      const { slot, pillar } = chunks[ci][i];
+      const id = newId();
+      await db.run("INSERT INTO posts (id, user_id, content) VALUES (?, ?, ?)", id, uid, content);
+      items.push({ post: (await getPost(uid, id))!, pillar, slot });
+    }
+  }
+  return c.json({ items, missing: plan.length - items.length });
+});
+main.post("/plan/schedule", async (c) => {
+  const uid = c.get("userId");
+  const { items } = z
+    .object({ items: z.array(z.object({ postId: z.string(), scheduledAt: z.string().datetime({ offset: true }) })).min(1).max(20) })
+    .parse(await c.req.json());
+  const scheduled = [];
+  for (const it of items) {
+    const p = await getPost(uid, it.postId);
+    if (!p || p.status !== "draft" || !p.content.trim() || new Date(it.scheduledAt) <= new Date()) continue;
+    await schedulePost(uid, p.id, it.scheduledAt);
+    scheduled.push((await getPost(uid, p.id))!);
+  }
+  return c.json({ posts: scheduled });
 });
 
 // --- Weekly posting slots ---

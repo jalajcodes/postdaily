@@ -3,7 +3,9 @@
 //  - publishes queued posts that are due
 //  - generates the day's ideas each morning
 //  - reminds you if you haven't posted (or queued) anything by your reminder time
+//  - nudges you to reply to comments ~40 minutes after a post goes live
 import { DateTime } from "luxon";
+import { NUDGE_AFTER_MIN } from "@postdaily/shared";
 import { db, nowIso } from "./db";
 import { addNotification, getProfile, getSettings, getVoiceProfile, updateProfile } from "./repo";
 import { analyzeStyle } from "./ai/writer";
@@ -32,6 +34,29 @@ async function publishDue() {
     const result = await publishNow(p.user_id, p.id);
     if (result.status === "published") await addNotification(p.user_id, "Posted to LinkedIn", result.content.slice(0, 80));
     else if (result.status === "failed") await addNotification(p.user_id, "Scheduled post failed", result.error ?? "Unknown error");
+  }
+}
+
+/**
+ * Replies in a post's first hour help its reach, so ~40 minutes after a post goes live,
+ * nudge the author to go reply. Posts older than 3 hours are skipped (e.g. after downtime).
+ */
+async function engagementNudges() {
+  const now = Date.now();
+  const due = await db.all<{ id: string; user_id: string; content: string; published_at: string; engagement_nudge: number }>(
+    `SELECT p.id, p.user_id, p.content, p.published_at, s.engagement_nudge FROM posts p JOIN settings s ON s.user_id = p.user_id
+     WHERE p.status = 'published' AND p.nudge_sent = 0 AND p.published_at <= ?`,
+    new Date(now - NUDGE_AFTER_MIN * 60_000).toISOString(),
+  );
+  for (const p of due) {
+    // Claim first so two runs never send the same nudge.
+    const claimed = await db.run("UPDATE posts SET nudge_sent = 1 WHERE id = ? AND nudge_sent = 0", p.id);
+    if (!claimed.changes || !p.engagement_nudge) continue;
+    if (now - new Date(p.published_at).getTime() > 3 * 3_600_000) continue;
+    const snippet = p.content.split("\n")[0].slice(0, 60);
+    const body = `Your post "${snippet}" has been live for ${NUDGE_AFTER_MIN} minutes. Reply to comments now: early replies help its reach.`;
+    await addNotification(p.user_id, "Reply to comments now", body);
+    desktopNotify?.("PostDaily", body);
   }
 }
 
@@ -118,6 +143,11 @@ export async function runScheduledTick() {
     await publishDue();
   } catch (e) {
     console.error("[scheduler] publish", e);
+  }
+  try {
+    await engagementNudges();
+  } catch (e) {
+    console.error("[scheduler] nudges", e);
   }
   try {
     await dailyJobs();

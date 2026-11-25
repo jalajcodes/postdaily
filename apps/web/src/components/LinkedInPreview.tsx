@@ -1,20 +1,24 @@
 import { useState } from "react";
 import { splitAtFold, type PreviewDevice } from "@postdaily/shared";
-import { Globe, Laptop, MessageSquare, Repeat2, Send, Smartphone, ThumbsUp } from "lucide-react";
+import { ChevronLeft, ChevronRight, Globe, Laptop, MessageSquare, Repeat2, Send, Smartphone, ThumbsUp } from "lucide-react";
 
 export function LinkedInPreview({
   content,
   name,
   picture,
   image,
+  document,
   firstComment,
 }: {
   content: string;
   name: string;
   picture?: string | null;
   image?: string | null;
+  /** PDF carousel: its title and page images. */
+  document?: { title: string; pages: string[] } | null;
   firstComment?: string | null;
 }) {
+  const [page, setPage] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [device, setDevice] = useState<PreviewDevice>("desktop");
   const { visible, hidden } = splitAtFold(content, device);
@@ -84,6 +88,34 @@ export function LinkedInPreview({
           )}
         </div>
         {image && <img src={image} alt="" className="w-full border-y border-slate-100 object-cover" />}
+        {document && document.pages.length > 0 && (
+          <div className="border-y border-slate-100">
+            <div className="truncate bg-slate-900 px-3 py-1.5 text-xs text-white">
+              {document.title} · {document.pages.length} pages
+            </div>
+            <div className="relative">
+              <img src={document.pages[Math.min(page, document.pages.length - 1)]} alt="" className="w-full" />
+              {page > 0 && (
+                <button
+                  className="absolute top-1/2 left-2 -translate-y-1/2 rounded-full bg-white/90 p-1.5 shadow"
+                  onClick={() => setPage(page - 1)}
+                  aria-label="Previous page"
+                >
+                  <ChevronLeft className="size-4" />
+                </button>
+              )}
+              {page < document.pages.length - 1 && (
+                <button
+                  className="absolute top-1/2 right-2 -translate-y-1/2 rounded-full bg-white/90 p-1.5 shadow"
+                  onClick={() => setPage(page + 1)}
+                  aria-label="Next page"
+                >
+                  <ChevronRight className="size-4" />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         {hidden && !expanded && (
           <div className="border-t border-dashed border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
             On {device === "mobile" ? "phones" : "desktop"}, the first {visible.length} characters show above “…more”.

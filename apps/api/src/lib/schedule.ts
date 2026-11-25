@@ -3,20 +3,26 @@ import { DateTime } from "luxon";
 import type { Post, Stats } from "@postdaily/shared";
 import { db, nowIso, type Statement } from "../db";
 import { getLearnedPosts, getSettings, getSlots, getUserRow, toPost } from "../repo";
-import { commentOnPost, LinkedInError, publishPost, uploadImage } from "./linkedin";
+import { commentOnPost, LinkedInError, publishPost, uploadDocument, uploadImage, type PostMedia } from "./linkedin";
 
 /** Next weekly slot (in the user's timezone) that has no post queued yet. */
 export async function nextFreeSlot(userId: string): Promise<string | null> {
+  return (await freeSlots(userId, 7 * 26, 1))[0] ?? null;
+}
+
+/** Free weekly slots (UTC ISO times) in the next `days` days, soonest first, at most `limit`. */
+export async function freeSlots(userId: string, days: number, limit = Infinity): Promise<string[]> {
   const { timezone } = await getSettings(userId);
   const slots = await getSlots(userId);
-  if (!slots.length) return null;
+  const found: string[] = [];
+  if (!slots.length) return found;
   const taken = new Set(
     (await db.all("SELECT scheduled_at FROM posts WHERE user_id = ? AND status = 'queued'", userId)).map((r) =>
       DateTime.fromISO(r.scheduled_at).toUTC().toISO(),
     ),
   );
   const now = DateTime.now().setZone(timezone);
-  for (let d = 0; d < 7 * 26; d++) {
+  for (let d = 0; d < days; d++) {
     const day = now.startOf("day").plus({ days: d });
     const candidates = slots
       .filter((s) => s.dayOfWeek === day.weekday)
@@ -28,10 +34,11 @@ export async function nextFreeSlot(userId: string): Promise<string | null> {
     for (const c of candidates) {
       if (c <= now) continue;
       const iso = c.toUTC().toISO()!;
-      if (!taken.has(iso)) return iso;
+      if (!taken.has(iso)) found.push(iso);
+      if (found.length >= limit) return found;
     }
   }
-  return null;
+  return found;
 }
 
 /** A random time within ±minutes of `iso`, never sooner than a minute from now. */
@@ -87,12 +94,14 @@ export async function publishNow(userId: string, postId: string): Promise<Post> 
     token = user.linkedin_token as string;
     sub = user.linkedin_sub as string;
 
-    let image: { urn: string; alt?: string | null } | undefined;
+    let media: PostMedia | undefined;
     if (row.has_image) {
-      const img = await db.get<{ data_url: string }>("SELECT data_url FROM post_images WHERE post_id = ?", postId);
-      if (img) image = { urn: await uploadImage(token, sub, img.data_url), alt: row.image_alt };
+      const file = await db.get<{ data_url: string }>("SELECT data_url FROM post_images WHERE post_id = ?", postId);
+      if (file && row.media_type === "document")
+        media = { urn: await uploadDocument(token, sub, file.data_url), title: row.document_title || "Carousel" };
+      else if (file) media = { urn: await uploadImage(token, sub, file.data_url), alt: row.image_alt };
     }
-    const urn = await publishPost(token, sub, row.content, image);
+    const urn = await publishPost(token, sub, row.content, media);
 
     // Keep the newest published posts as voice examples; re-learn the style every 5 posts.
     const learned = [row.content as string, ...(await getLearnedPosts(userId))].slice(0, MAX_LEARNED_POSTS);

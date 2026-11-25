@@ -1,14 +1,31 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarPlus, Clock, ImagePlus, MessageSquareText, Quote, Redo2, RotateCcw, Send, Trash2, Undo2, Wand2, X } from "lucide-react";
-import { LINKEDIN_MAX_CHARS, REWRITE_ACTIONS, type RewriteAction } from "@postdaily/shared";
+import {
+  CalendarPlus,
+  Clock,
+  GalleryHorizontal,
+  ImagePlus,
+  MessageSquareText,
+  Pencil,
+  Quote,
+  Redo2,
+  RotateCcw,
+  Send,
+  Sparkles,
+  Trash2,
+  Undo2,
+  Wand2,
+  X,
+} from "lucide-react";
+import { LINKEDIN_MAX_CHARS, REWRITE_ACTIONS, replaceHook, type Carousel, type RewriteAction } from "@postdaily/shared";
 import { api, formatWhen } from "../lib/api";
 import { LinkedInPreview } from "../components/LinkedInPreview";
-import { prepareImage, quoteCard } from "../lib/image";
+import { prepareImage, quoteCard, slideThumbnails } from "../lib/image";
+import { CarouselEditor } from "../components/CarouselEditor";
 import { Button, Card, ErrorText, Spinner, inputCls } from "../components/ui";
 
-const QUICK: RewriteAction[] = ["new_hook", "shorter", "longer", "punchier", "casual", "professional", "add_cta", "fix_formatting"];
+const QUICK: RewriteAction[] = ["shorter", "longer", "punchier", "casual", "professional", "add_cta", "fix_formatting"];
 
 const STATUS_STYLES: Record<string, string> = {
   draft: "bg-slate-100 text-slate-600",
@@ -142,6 +159,24 @@ export function EditorPage() {
   });
   const [imageError, setImageError] = useState<unknown>(null);
 
+  // Hook variants: 3 alternative openings; picking one replaces the first paragraph.
+  const hooks = useMutation({ mutationFn: () => api.ai.hooks(content) });
+
+  // Carousel: AI outline -> edit slides -> PDF built in the browser -> attached to the post.
+  const [carouselDraft, setCarouselDraft] = useState<Carousel | null>(null);
+  const outline = useMutation({ mutationFn: () => api.ai.carousel(content), onSuccess: setCarouselDraft });
+  const setDocument = useMutation({
+    mutationFn: (doc: Parameters<typeof api.posts.setDocument>[1]) => api.posts.setDocument(id!, doc),
+    onSuccess: () => {
+      setCarouselDraft(null);
+      qc.removeQueries({ queryKey: ["post-image", id] });
+      refresh();
+    },
+  });
+  const authorName = me.data?.name ?? "";
+  const slides = post.data?.carouselSlides;
+  const docThumbs = useMemo(() => (slides ? slideThumbnails(slides, authorName) : []), [slides, authorName]);
+
   if (post.isLoading) return <Spinner />;
   if (!post.data) return <ErrorText error={post.error ?? "Post not found"} />;
   const p = post.data;
@@ -232,6 +267,38 @@ export function EditorPage() {
             <div className="mb-3 flex items-center gap-2 text-sm font-medium">
               <Wand2 className="size-4 text-brand-500" /> Quick fixes
             </div>
+            <div className="mb-3 rounded-lg bg-slate-50 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm">
+                  <b>Hook</b> <span className="text-slate-500">· the lines people see before "…more"</span>
+                </span>
+                <Button
+                  variant="secondary"
+                  className="py-1.5 text-xs"
+                  disabled={busy || content.trim().length < 20}
+                  loading={hooks.isPending}
+                  onClick={() => hooks.mutate()}
+                >
+                  <Sparkles className="size-3.5" /> {hooks.data ? "3 more hooks" : "Try 3 new hooks"}
+                </Button>
+              </div>
+              {hooks.data && (
+                <ul className="mt-2 space-y-1.5">
+                  {hooks.data.hooks.map((h) => (
+                    <li key={h}>
+                      <button
+                        className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-left text-sm whitespace-pre-wrap hover:border-brand-500 hover:bg-brand-50"
+                        onClick={() => edit(replaceHook(content, h))}
+                        title="Use this hook"
+                      >
+                        {h}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <ErrorText error={hooks.error} />
+            </div>
             <div className="flex flex-wrap gap-2">
               {QUICK.map((a) => (
                 <Button
@@ -272,9 +339,38 @@ export function EditorPage() {
         {!isPublished && (
           <Card>
             <div className="mb-3 flex items-center gap-2 text-sm font-medium">
-              <ImagePlus className="size-4 text-brand-500" /> Image <span className="font-normal text-slate-400">(optional)</span>
+              <ImagePlus className="size-4 text-brand-500" /> Image or carousel{" "}
+              <span className="font-normal text-slate-400">(optional)</span>
             </div>
-            {p.hasImage && image.data ? (
+            {carouselDraft ? (
+              <CarouselEditor
+                key={carouselDraft.title + carouselDraft.slides.length}
+                initialTitle={carouselDraft.title}
+                initialSlides={carouselDraft.slides}
+                name={authorName}
+                onSave={(doc) => setDocument.mutateAsync(doc)}
+                onCancel={() => setCarouselDraft(null)}
+              />
+            ) : p.hasDocument && slides ? (
+              <div className="space-y-2">
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {docThumbs.map((src, i) => (
+                    <img key={i} src={src} alt={`Slide ${i + 1}`} className="h-36 shrink-0 rounded-md border border-slate-200" />
+                  ))}
+                </div>
+                <p className="text-sm text-slate-600">
+                  <b>{p.documentTitle}</b> · {slides.length} slides (PDF carousel)
+                </p>
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <Button variant="secondary" className="py-1.5 text-xs" onClick={() => setCarouselDraft({ title: p.documentTitle ?? "", slides })}>
+                    <Pencil className="size-3.5" /> Edit slides
+                  </Button>
+                  <Button variant="ghost" className="py-1.5 text-xs" onClick={() => removeImage.mutate()} loading={removeImage.isPending}>
+                    Remove
+                  </Button>
+                </div>
+              </div>
+            ) : p.hasImage && image.data ? (
               <div className="space-y-3">
                 <div className="relative">
                   <img src={image.data.dataUrl} alt={imageAlt} className="max-h-72 w-full rounded-lg border border-slate-200 object-contain" />
@@ -323,10 +419,20 @@ export function EditorPage() {
                 >
                   <Quote className="size-4" /> Make a quote card from the hook
                 </Button>
+                <Button
+                  variant="secondary"
+                  disabled={content.trim().length < 50}
+                  loading={outline.isPending}
+                  onClick={() => outline.mutate()}
+                  title="Turn this post into a swipeable PDF carousel"
+                >
+                  <GalleryHorizontal className="size-4" /> Make a carousel
+                </Button>
               </div>
             )}
+            {outline.isPending && <p className="mt-2 text-xs text-slate-500">Outlining slides from your post…</p>}
             <div className="mt-2">
-              <ErrorText error={imageError ?? setImage.error ?? removeImage.error} />
+              <ErrorText error={imageError ?? setImage.error ?? removeImage.error ?? outline.error ?? setDocument.error} />
             </div>
           </Card>
         )}
@@ -364,6 +470,7 @@ export function EditorPage() {
           name={me.data?.name ?? "You"}
           picture={me.data?.picture}
           image={p.hasImage ? image.data?.dataUrl : null}
+          document={p.hasDocument && docThumbs.length ? { title: p.documentTitle ?? "", pages: docThumbs } : null}
           firstComment={firstComment}
         />
 
