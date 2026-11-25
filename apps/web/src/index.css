@@ -12,13 +12,16 @@
 body {
   @apply bg-slate-50 text-slate-900 antialiased;
   -webkit-tap-highlight-color: transparent;
-  overscroll-behavior-y: none;
 }
 
-/* No sideways page scroll on phones, ever. */
+/* No sideways page scroll on phones, ever. Use `clip`, not `hidden`: `hidden` turns <body>
+   into its own scroll box, and the wheel / touch scroll then never reaches the page. */
 html,
 body {
-  overflow-x: hidden;
+  overflow-x: clip;
+}
+html {
+  overscroll-behavior-y: none;
 }
 
 /* iPhones zoom into form fields with text under 16px. */
