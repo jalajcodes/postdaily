@@ -117,22 +117,24 @@ export function WritePage() {
         )}
         {voice.error && <p className="mt-2 text-sm text-amber-700">{voice.error}</p>}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex rounded-lg border border-slate-200 p-0.5 text-sm">
+          <div className="flex w-full rounded-lg border border-slate-200 p-0.5 text-sm sm:w-auto">
             {(["short", "medium", "long"] as const).map((l) => (
               <button
                 key={l}
                 onClick={() => setLength(l)}
-                className={`rounded-md px-3 py-1 capitalize ${len === l ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+                className={`flex-1 rounded-md px-3 py-2 capitalize sm:flex-none sm:py-1 ${len === l ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
               >
                 {l}
               </button>
             ))}
           </div>
-          <div className="flex gap-2">
-            <Button variant="secondary" disabled={!input.trim()} loading={pick.isPending} onClick={() => pick.mutate(input)}>
+          {/* Phones: Generate full width on top, the two alternatives side by side below. */}
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+            <Button className="order-2 sm:order-none" variant="secondary" disabled={!input.trim()} loading={pick.isPending} onClick={() => pick.mutate(input)}>
               <FileText className="size-4" /> Write it myself
             </Button>
             <Button
+              className="order-3 sm:order-none"
               variant="secondary"
               disabled={!input.trim() || generate.isPending}
               loading={carousel.isPending}
@@ -141,7 +143,7 @@ export function WritePage() {
             >
               <GalleryHorizontal className="size-4" /> Make a carousel
             </Button>
-            <Button onClick={() => generate.mutate()} disabled={!input.trim()} loading={generate.isPending}>
+            <Button className="order-1 col-span-2 sm:order-none" onClick={() => generate.mutate()} disabled={!input.trim()} loading={generate.isPending}>
               <Sparkles className="size-4" /> Generate 3 drafts
             </Button>
           </div>

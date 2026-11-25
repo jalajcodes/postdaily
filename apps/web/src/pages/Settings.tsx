@@ -16,7 +16,7 @@ import {
 import { prepareLogo } from "../lib/carousel";
 import { api } from "../lib/api";
 import { currentSubscription, disablePush, enablePush, isInstalled, isIos, pushSupported } from "../lib/push";
-import { Button, Card, ErrorText, Label, LinkedinIcon, PageHeader, Spinner, inputBaseCls, inputCls } from "../components/ui";
+import { Button, Card, ErrorText, Label, LinkedinIcon, PageHeader, SaveBar, Spinner, inputBaseCls, inputCls } from "../components/ui";
 
 const TIMEZONES: string[] = (Intl as any).supportedValuesOf?.("timeZone") ?? ["UTC"];
 
@@ -67,8 +67,9 @@ export function SettingsPage() {
         }
       />
       <ErrorText error={save.error} />
+      <SaveBar dirty={dirty} saving={save.isPending} onSave={() => save.mutate(s)} />
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="space-y-4">
           <h2 className="font-medium">AI writer</h2>
           <div className="space-y-2">

@@ -215,7 +215,7 @@ export function EditorPage() {
   const busy = rewrite.isPending;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
+    <div className="grid grid-cols-1 gap-6 pb-16 lg:grid-cols-[minmax(0,1fr)_380px] lg:pb-0">
       <div className="min-w-0 space-y-4">
         <div className="flex flex-wrap items-center gap-2">
           <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${STATUS_STYLES[p.status]}`}>{p.status}</span>
@@ -251,7 +251,7 @@ export function EditorPage() {
 
         <Card className="p-0">
           <textarea
-            className="min-h-[420px] w-full resize-y rounded-xl p-5 text-[15px] leading-relaxed outline-none disabled:bg-slate-50"
+            className="min-h-[300px] w-full resize-y rounded-xl p-4 text-[15px] leading-relaxed outline-none disabled:bg-slate-50 md:min-h-[420px] md:p-5"
             value={content}
             disabled={isPublished || busy}
             onChange={(e) => edit(e.target.value, false)}
@@ -375,8 +375,8 @@ export function EditorPage() {
             {carouselDraft ? (
               <>
                 <p className="text-sm text-slate-500">Designing your carousel…</p>
-                <div className="fixed inset-0 z-40 overflow-y-auto bg-slate-900/50 p-2 sm:p-6" role="dialog" aria-modal="true" aria-label="Design carousel">
-                  <div className="mx-auto max-w-6xl rounded-xl bg-white p-4 shadow-xl sm:p-6">
+                <div className="fixed inset-0 z-40 overflow-y-auto overscroll-contain bg-slate-900/50 sm:p-6" role="dialog" aria-modal="true" aria-label="Design carousel">
+                  <div className="mx-auto min-h-dvh max-w-6xl bg-white px-4 pt-[calc(1rem+env(safe-area-inset-top))] shadow-xl sm:min-h-0 sm:rounded-xl sm:p-6">
                     <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold">
                       <GalleryHorizontal className="size-5 text-brand-500" /> Design your carousel
                     </h2>
@@ -525,7 +525,7 @@ export function EditorPage() {
         )}
       </div>
 
-      <div className="space-y-4 lg:sticky lg:top-8 lg:self-start">
+      <div id="post-preview" className="scroll-mt-20 space-y-4 lg:sticky lg:top-8 lg:self-start">
         <LinkedInPreview
           content={content}
           name={me.data?.name ?? "You"}
@@ -599,6 +599,51 @@ export function EditorPage() {
           <Trash2 className="size-4" /> Delete
         </Button>
       </div>
+
+      {/* Phones: the main actions stay in reach above the tab bar. */}
+      {!isPublished && (
+        <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-20 border-t border-slate-200 bg-white/95 px-3 py-2 backdrop-blur lg:hidden">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              className="px-2.5"
+              onClick={() => document.getElementById("post-preview")?.scrollIntoView({ behavior: "smooth" })}
+            >
+              Preview
+            </Button>
+            <span className="flex-1" />
+            {p.status === "failed" ? (
+              <Button variant="secondary" onClick={() => retry.mutate()} loading={retry.isPending}>
+                <RotateCcw className="size-4" /> Retry
+              </Button>
+            ) : p.status === "queued" ? (
+              <Button variant="secondary" onClick={() => unschedule.mutate()} loading={unschedule.isPending}>
+                Unschedule
+              </Button>
+            ) : (
+              <Button onClick={() => queue.mutate()} loading={queue.isPending} disabled={over || !content.trim()}>
+                <CalendarPlus className="size-4" /> Queue
+              </Button>
+            )}
+            <Button
+              variant="secondary"
+              disabled={over || !content.trim() || !me.data?.linkedinConnected}
+              onClick={() => {
+                if (confirm("Publish this post to LinkedIn now?")) publish.mutate();
+              }}
+              loading={publish.isPending}
+              aria-label="Post now"
+            >
+              <Send className="size-4" /> Post
+            </Button>
+          </div>
+          {(queue.error || publish.error || unschedule.error || retry.error) && (
+            <div className="mt-2">
+              <ErrorText error={queue.error ?? publish.error ?? unschedule.error ?? retry.error} />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

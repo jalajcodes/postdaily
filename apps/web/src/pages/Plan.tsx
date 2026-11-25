@@ -70,7 +70,7 @@ export function PlanPage() {
     <>
       <PageHeader title="Plan my week" subtitle="One click: a draft for every free posting slot this week, rotating through your themes." />
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="space-y-3">
           <div>
             <Label hint="(2-5 recurring themes you post about)">Content pillars</Label>

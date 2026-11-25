@@ -14,6 +14,7 @@ export function QueuePage() {
   const failed = useQuery({ queryKey: ["posts", "failed"], queryFn: () => api.posts.list("failed") });
   const published = useQuery({ queryKey: ["posts", "published"], queryFn: () => api.posts.list("published") });
   const tz = settings.data?.timezone;
+  const [shown, setShown] = useState(5);
 
   const unschedule = useMutation({
     mutationFn: (id: string) => api.posts.unschedule(id),
@@ -71,10 +72,15 @@ export function QueuePage() {
       )}
 
       <Section title="Published" empty="Nothing published yet.">
-        {published.data?.slice(0, 20).map((p) => (
+        {published.data?.slice(0, shown).map((p) => (
           <PostRow key={p.id} post={p} meta={formatWhen(p.publishedAt!, tz)} metaClass="text-green-700" />
         ))}
       </Section>
+      {(published.data?.length ?? 0) > shown && (
+        <Button variant="secondary" className="mt-3 w-full sm:w-auto" onClick={() => setShown(shown + 10)}>
+          Show more ({published.data!.length - shown} older)
+        </Button>
+      )}
     </>
   );
 }
@@ -186,9 +192,9 @@ function SlotsEditor() {
                   <button
                     aria-label={`Remove ${DAY_NAMES[d]} ${s.time}`}
                     onClick={() => save.mutate(slots.filter((x) => !(x.dayOfWeek === d && x.time === s.time)))}
-                    className="text-slate-400 hover:text-red-500"
+                    className="-m-1.5 p-1.5 text-slate-400 hover:text-red-500"
                   >
-                    <X className="size-3" />
+                    <X className="size-3.5" />
                   </button>
                 </span>
               ))}

@@ -50,35 +50,41 @@ export function TodayPage() {
         </Link>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card>
-          <div className="flex items-center gap-2 text-sm text-slate-500">
-            <Flame className="size-4 text-orange-500" /> Daily streak
+      {/* Three stats side by side, compact on phones. */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
+        <Card className="p-3 md:p-5">
+          <div className="flex items-center gap-1.5 text-xs text-slate-500 sm:gap-2 sm:text-sm">
+            <Flame className="size-4 shrink-0 text-orange-500" /> <span className="sm:hidden">Streak</span>
+            <span className="hidden sm:inline">Daily streak</span>
           </div>
-          <div className="mt-2 text-3xl font-semibold">{s.dailyStreak}</div>
-          <div className="text-xs text-slate-500">{s.dailyStreak === 1 ? "day" : "days"} in a row</div>
+          <div className="mt-1 text-2xl font-semibold sm:mt-2 sm:text-3xl">{s.dailyStreak}</div>
+          <div className="text-xs text-slate-500">{s.dailyStreak === 1 ? "day" : "days"}<span className="hidden sm:inline"> in a row</span></div>
         </Card>
-        <Card>
-          <div className="flex items-center gap-2 text-sm text-slate-500">
-            <CalendarCheck className="size-4 text-brand-500" /> This week
+        <Card className="p-3 md:p-5">
+          <div className="flex items-center gap-1.5 text-xs text-slate-500 sm:gap-2 sm:text-sm">
+            <CalendarCheck className="size-4 shrink-0 text-brand-500" /> This week
           </div>
-          <div className="mt-2 text-3xl font-semibold">
+          <div className="mt-1 text-2xl font-semibold sm:mt-2 sm:text-3xl">
             {s.thisWeek}
-            <span className="text-lg text-slate-400">/{s.weeklyGoal}</span>
+            <span className="text-base text-slate-400 sm:text-lg">/{s.weeklyGoal}</span>
           </div>
-          <div className="mt-2 h-1.5 rounded-full bg-slate-100">
+          <div className="mt-1.5 h-1.5 rounded-full bg-slate-100 sm:mt-2">
             <div
               className="h-1.5 rounded-full bg-brand-500"
               style={{ width: `${Math.min(100, (s.thisWeek / s.weeklyGoal) * 100)}%` }}
             />
           </div>
         </Card>
-        <Card>
-          <div className="flex items-center gap-2 text-sm text-slate-500">
-            <Trophy className="size-4 text-amber-500" /> Weekly streak
+        <Card className="p-3 md:p-5">
+          <div className="flex items-center gap-1.5 text-xs text-slate-500 sm:gap-2 sm:text-sm">
+            <Trophy className="size-4 shrink-0 text-amber-500" /> <span className="sm:hidden">Weeks</span>
+            <span className="hidden sm:inline">Weekly streak</span>
           </div>
-          <div className="mt-2 text-3xl font-semibold">{s.weeklyStreak}</div>
-          <div className="text-xs text-slate-500">weeks hitting your goal · {s.totalPublished} posts total</div>
+          <div className="mt-1 text-2xl font-semibold sm:mt-2 sm:text-3xl">{s.weeklyStreak}</div>
+          <div className="text-xs text-slate-500">
+            <span className="sm:hidden">on goal</span>
+            <span className="hidden sm:inline">weeks hitting your goal · {s.totalPublished} posts total</span>
+          </div>
         </Card>
       </div>
 

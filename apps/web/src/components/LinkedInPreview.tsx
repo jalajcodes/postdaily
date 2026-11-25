@@ -20,7 +20,10 @@ export function LinkedInPreview({
 }) {
   const [page, setPage] = useState(0);
   const [expanded, setExpanded] = useState(false);
-  const [device, setDevice] = useState<PreviewDevice>("desktop");
+  // Start in phone view on phones.
+  const [device, setDevice] = useState<PreviewDevice>(() =>
+    typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches ? "mobile" : "desktop",
+  );
   const { visible, hidden } = splitAtFold(content, device);
   const avatar = (size: string) =>
     picture ? (

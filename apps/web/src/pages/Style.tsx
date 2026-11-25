@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles, X } from "lucide-react";
 import type { Profile } from "@postdaily/shared";
 import { api } from "../lib/api";
-import { Button, Card, ErrorText, Label, PageHeader, Spinner, inputCls } from "../components/ui";
+import { Button, Card, ErrorText, Label, PageHeader, SaveBar, Spinner, inputCls } from "../components/ui";
 
 export function StylePage() {
   const qc = useQueryClient();
@@ -50,8 +50,9 @@ export function StylePage() {
         }
       />
       <ErrorText error={save.error} />
+      <SaveBar dirty={dirty} saving={save.isPending} onSave={() => save.mutate(p)} />
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="space-y-4">
           <div>
             <Label>What you do</Label>

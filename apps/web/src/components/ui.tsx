@@ -20,7 +20,7 @@ export function Button({
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; loading?: boolean }) {
   return (
     <button
-      className={`inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors cursor-pointer disabled:cursor-not-allowed ${variants[variant]} ${className}`}
+      className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors cursor-pointer select-none disabled:cursor-not-allowed md:min-h-0 ${variants[variant]} ${className}`}
       disabled={disabled || loading}
       {...rest}
     >
@@ -31,13 +31,13 @@ export function Button({
 }
 
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`rounded-xl border border-slate-200 bg-white p-5 ${className}`}>{children}</div>;
+  return <div className={`rounded-xl border border-slate-200 bg-white p-4 md:p-5 ${className}`}>{children}</div>;
 }
 
 export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: ReactNode }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-      <div>
+    <div className="mb-5 flex flex-wrap items-end justify-between gap-3 md:mb-6">
+      <div className="min-w-0">
         <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-slate-500">{subtitle}</p>}
       </div>
@@ -80,8 +80,22 @@ export function LinkedinIcon({ className = "size-4" }: { className?: string }) {
   );
 }
 
+// Inputs are 16px on phones: smaller text makes iPhones zoom in when you tap a field.
 export const inputBaseCls =
-  "rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100";
+  "rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-base outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 md:py-2 md:text-sm";
 
 export const inputCls =
-  "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100";
+  "w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-base outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 md:py-2 md:text-sm";
+
+/** Phones: a "Save changes" bar above the tab bar while there are unsaved edits. */
+export function SaveBar({ dirty, saving, onSave }: { dirty: boolean; saving: boolean; onSave: () => void }) {
+  if (!dirty) return null;
+  return (
+    <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-20 flex items-center gap-3 border-t border-slate-200 bg-white/95 px-4 py-2 backdrop-blur md:hidden">
+      <span className="flex-1 text-sm text-slate-600">Unsaved changes</span>
+      <Button onClick={onSave} loading={saving}>
+        Save changes
+      </Button>
+    </div>
+  );
+}

@@ -1,6 +1,6 @@
-import { useDeferredValue, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { AlertTriangle, ArrowDown, ArrowUp, Copy, GalleryHorizontal, ImagePlus, Plus, Sparkles, Trash2, Wand2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, Copy, GalleryHorizontal, ImagePlus, Palette, Plus, Sparkles, Trash2, Wand2, X } from "lucide-react";
 import {
   ACCENT_PRESETS,
   CAROUSEL_FONTS,
@@ -74,6 +74,16 @@ export function CarouselEditor({
   const [error, setError] = useState<unknown>(null);
   const [instruction, setInstruction] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
+  // Phones: the style controls start folded so the slides are on screen first.
+  const [showDesign, setShowDesign] = useState(() => typeof window === "undefined" || window.matchMedia("(min-width: 768px)").matches);
+  // The page behind the designer shouldn't scroll while it's open.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
 
   const assets = useCarouselAssets(design, brand, name, slides);
   const deferredSlides = useDeferredValue(slides);
@@ -161,7 +171,22 @@ export function CarouselEditor({
   return (
     <div className="space-y-4">
       {/* Design */}
-      <div className="grid gap-3 rounded-lg bg-slate-50 p-3 sm:grid-cols-2 lg:grid-cols-4">
+      <button
+        className="flex w-full items-center gap-2 rounded-lg bg-slate-50 px-3 py-3 text-left text-sm font-medium md:hidden"
+        onClick={() => setShowDesign(!showDesign)}
+        aria-expanded={showDesign}
+      >
+        <Palette className="size-4 text-brand-500" />
+        <span className="flex-1">
+          Style, pattern, font &amp; color
+          <span className="block text-xs font-normal text-slate-500">
+            {CAROUSEL_THEMES[design.theme].split(":")[0]} · {CAROUSEL_PATTERNS[design.pattern]} · {CAROUSEL_FONTS[design.font].label}
+          </span>
+        </span>
+        <span className="size-4 rounded-full" style={{ background: design.accent }} />
+        <ChevronDown className={`size-4 transition-transform ${showDesign ? "rotate-180" : ""}`} />
+      </button>
+      <div className={`grid gap-3 rounded-lg bg-slate-50 p-3 sm:grid-cols-2 lg:grid-cols-4 ${showDesign ? "" : "hidden md:grid"}`}>
         <div>
           <Label>Style</Label>
           <select className={inputCls} value={design.theme} onChange={(e) => setD("theme", e.target.value as CarouselTheme)}>
@@ -403,19 +428,20 @@ export function CarouselEditor({
         </div>
       )}
 
-      <div className="flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3">
-        <div className="min-w-48 flex-1">
-          <Label hint="(shown above the carousel on LinkedIn)">Document title</Label>
-          <input className={inputCls} value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} />
-        </div>
+      <div className="border-t border-slate-100 pt-3">
+        <Label hint="(shown above the carousel on LinkedIn)">Document title</Label>
+        <input className={inputCls} value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} />
+      </div>
+      <ErrorText error={error} />
+      {/* Pinned to the bottom on phones so Attach is always in reach. */}
+      <div className="sticky bottom-0 -mx-4 flex items-center justify-end gap-2 border-t border-slate-100 bg-white px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:static sm:mx-0 sm:border-0 sm:px-0 sm:pt-0 sm:pb-0">
         <Button variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
-        <Button onClick={save} loading={saving} disabled={!assets}>
+        <Button className="flex-1 sm:flex-none" onClick={save} loading={saving} disabled={!assets}>
           <GalleryHorizontal className="size-4" /> Attach carousel
         </Button>
       </div>
-      <ErrorText error={error} />
     </div>
   );
 }
@@ -431,7 +457,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 
 function IconBtn({ label, disabled, onClick, children }: { label: string; disabled?: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
-    <button className="rounded p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-30" disabled={disabled} onClick={onClick} aria-label={label} title={label}>
+    <button className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-30 md:p-1" disabled={disabled} onClick={onClick} aria-label={label} title={label}>
       {children}
     </button>
   );
@@ -451,7 +477,7 @@ function Items({ label, items, onChange }: { label: string; items: string[]; onC
               placeholder={`Point ${i + 1}`}
               onChange={(e) => onChange(items.map((x, j) => (j === i ? e.target.value : x)))}
             />
-            <button className="rounded p-1 text-slate-400 hover:text-red-600" onClick={() => onChange(items.filter((_, j) => j !== i))} aria-label="Remove point">
+            <button className="rounded-lg p-2 text-slate-400 hover:text-red-600 md:p-1" onClick={() => onChange(items.filter((_, j) => j !== i))} aria-label="Remove point">
               <X className="size-4" />
             </button>
           </div>
