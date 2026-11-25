@@ -1,6 +1,6 @@
-import { StrictMode, type ReactNode } from "react";
+import { lazy, StrictMode, Suspense, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // Bundled fonts: the app UI uses Inter; carousels can use any of these.
 import "@fontsource/inter/400.css";
@@ -38,8 +38,19 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
 });
 
+// The public landing page (separate file, only loaded for visitors).
+const Landing = lazy(() => import("./pages/Landing"));
+const landing = (
+  <Suspense fallback={<div className="min-h-dvh bg-[#050712]" />}>
+    <Landing />
+  </Suspense>
+);
+
+/** Signed out: "/" shows the landing page; any other app page goes to sign-in. */
 function RequireAuth({ children }: { children: ReactNode }) {
-  return tokenStore.get() ? children : <Navigate to="/login" replace />;
+  const { pathname } = useLocation();
+  if (tokenStore.get()) return children;
+  return pathname === "/" ? landing : <Navigate to="/login" replace />;
 }
 
 registerServiceWorker();
@@ -51,6 +62,7 @@ createRoot(document.getElementById("root")!).render(
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/welcome" element={landing} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
           <Route
             element={

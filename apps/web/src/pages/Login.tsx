@@ -57,6 +57,9 @@ export function LoginPage() {
           )}
           <ErrorText error={error ?? config.error} />
         </div>
+        <a href="/welcome" className="mt-6 block text-center text-xs text-slate-500 hover:text-brand-600">
+          What is PostDaily? →
+        </a>
       </div>
     </div>
   );
