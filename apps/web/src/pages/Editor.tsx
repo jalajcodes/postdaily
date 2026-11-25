@@ -385,6 +385,7 @@ export function EditorPage() {
                     </h2>
                   <CarouselEditor
                     key={carouselDraft.title + carouselDraft.slides.length}
+                    draftKey={id!}
                     initialTitle={carouselDraft.title}
                     initialSlides={carouselDraft.slides}
                     initialDesign={carouselDraft.design ?? null}

@@ -190,6 +190,10 @@ export interface CarouselSlide {
   stat?: string;
   /** image: a JPEG data URL (resized in the browser). */
   image?: string;
+  /** Internal notes for this slide (not shown in carousel). */
+  notes?: string;
+  /** Prevent accidental edits on finished slides. */
+  locked?: boolean;
 }
 
 export const CAROUSEL_THEMES = {
@@ -213,6 +217,19 @@ export const CAROUSEL_PATTERNS = {
   topo: "Topographic",
   grain: "Grain",
   corner: "Corner shapes",
+  mesh: "Mesh gradient",
+  constellation: "Constellation",
+  circuit: "Circuit board",
+  hexagons: "Hexagons",
+  lowpoly: "Low-poly",
+  isometric: "Isometric cubes",
+  confetti: "Confetti",
+  sunburst: "Sunburst",
+  halftone: "Halftone",
+  squiggles: "Squiggles",
+  plus: "Plus grid",
+  arcs: "Arcs",
+  doodles: "Doodles",
 } as const;
 export type CarouselPattern = keyof typeof CAROUSEL_PATTERNS;
 
@@ -226,6 +243,37 @@ export const CAROUSEL_FONTS = {
 } as const;
 export type CarouselFont = keyof typeof CAROUSEL_FONTS;
 
+/** Line-art illustrations (from the Lucide icon set, ISC license) drawn large behind slides. */
+export const CAROUSEL_ILLUSTRATIONS = {
+  none: "None",
+  rocket: "Rocket",
+  lightbulb: "Idea",
+  "trending-up": "Growth",
+  "chart-column": "Chart",
+  target: "Target",
+  megaphone: "Megaphone",
+  mountain: "Mountain",
+  sparkles: "Sparkles",
+  brain: "Brain",
+  handshake: "Handshake",
+  coffee: "Coffee",
+  briefcase: "Briefcase",
+  users: "Team",
+  compass: "Compass",
+  trophy: "Trophy",
+  flame: "Flame",
+  zap: "Lightning",
+  heart: "Heart",
+  "message-circle": "Conversation",
+  "pen-tool": "Design",
+  "code-xml": "Code",
+  puzzle: "Puzzle",
+  palette: "Palette",
+  globe: "Globe",
+  leaf: "Leaf",
+} as const;
+export type CarouselIllustration = keyof typeof CAROUSEL_ILLUSTRATIONS;
+
 export const ACCENT_PRESETS = ["#0a66c2", "#7c3aed", "#db2777", "#ea580c", "#16a34a", "#0f766e", "#111827"] as const;
 
 export interface CarouselDesign {
@@ -234,6 +282,22 @@ export interface CarouselDesign {
   font: CarouselFont;
   /** Hex color, e.g. "#0a66c2". */
   accent: string;
+  // Optional extras; leaving them out keeps the original look.
+  /** Second color for gradients and mesh backgrounds (default: a darker accent). */
+  accent2?: string;
+  /** How strong the background pattern is. */
+  intensity?: "subtle" | "normal" | "bold";
+  illustration?: CarouselIllustration;
+  /** Draw the illustration on the cover and last slide only, or on every slide. */
+  illustrationOn?: "featured" | "all";
+  align?: "left" | "center";
+  /** Text size: small, medium (default), large. */
+  textSize?: "s" | "m" | "l";
+  /** How *highlighted* words are drawn ("auto" picks per style). */
+  highlight?: "auto" | "color" | "marker" | "underline" | "pill";
+  pageNumbers?: boolean;
+  progressBar?: boolean;
+  swipeCue?: boolean;
 }
 
 export interface CarouselBrand extends CarouselDesign {

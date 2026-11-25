@@ -10,6 +10,7 @@ import {
   type CarouselSlide,
   type SlideType,
 } from "@postdaily/shared";
+import { drawIllustration, ILLUSTRATION_IDS } from "./illustrations";
 
 export const SLIDE_W = 1080;
 export const SLIDE_H = 1350;
@@ -55,16 +56,43 @@ interface Palette {
   fg: string;
   muted: string;
   accent: string;
-  /** How highlighted (*starred*) words are drawn. */
-  highlight: { style: "color" | "marker" | "underline"; color: string };
+  /** How highlighted (*starred*) words are drawn. `text` = text color inside a pill. */
+  highlight: { style: "color" | "marker" | "underline" | "pill"; color: string; text?: string };
+  /** Second color (mesh, confetti...). */
+  accent2: string;
   /** Cards (compare columns, list badges) on this background. */
   card: string;
   pattern: string;
   patternAlpha: number;
 }
 
-/** Colors for one slide. Cover and closing slides are "featured" in some themes. */
+const INTENSITY = { subtle: 0.55, normal: 1, bold: 1.8 } as const;
+
+/** Colors for one slide, with the optional design extras (second color, strength, highlight). */
 function palette(design: CarouselDesign, featured: boolean): Palette {
+  const p = basePalette(design, featured);
+  const a = design.accent;
+  const a2 = design.accent2 ?? mix(a, "#ffffff", 0.45);
+  const coloredBg = p.bg === a || (p.bg2 !== undefined && design.theme !== "dark");
+  if (p.bg2 !== undefined && design.accent2 && design.theme !== "dark") p.bg2 = design.accent2;
+  p.accent2 = a2;
+  p.patternAlpha *= INTENSITY[design.intensity ?? "normal"];
+  const hl = design.highlight ?? "auto";
+  if (hl !== "auto") {
+    const strong = coloredBg ? p.fg : p.accent;
+    p.highlight =
+      hl === "color"
+        ? { style: "color", color: coloredBg ? mix(a, "#ffffff", 0.72) : p.accent }
+        : hl === "marker"
+          ? { style: "marker", color: rgba(coloredBg || design.theme === "dark" ? "#ffffff" : a, coloredBg ? 0.24 : 0.18) }
+          : hl === "underline"
+            ? { style: "underline", color: strong }
+            : { style: "pill", color: strong, text: coloredBg ? a : luminance(strong) > 0.55 ? "#0f172a" : "#ffffff" };
+  }
+  return p;
+}
+
+function basePalette(design: CarouselDesign, featured: boolean): Palette {
   const a = design.accent;
   const onAccent = luminance(a) > 0.45 ? "#111827" : "#ffffff";
   const colored = (): Palette => ({
@@ -75,6 +103,7 @@ function palette(design: CarouselDesign, featured: boolean): Palette {
     accent: onAccent,
     highlight: { style: "marker", color: rgba(onAccent === "#ffffff" ? "#ffffff" : "#000000", 0.22) },
     card: rgba(onAccent === "#ffffff" ? "#ffffff" : "#000000", 0.12),
+    accent2: a,
     pattern: onAccent,
     patternAlpha: 0.14,
   });
@@ -85,6 +114,7 @@ function palette(design: CarouselDesign, featured: boolean): Palette {
     accent: a,
     highlight: { style: "color", color: a },
     card: rgba(a, 0.08),
+    accent2: a,
     pattern: a,
     patternAlpha: 0.13,
   });
@@ -105,6 +135,7 @@ function palette(design: CarouselDesign, featured: boolean): Palette {
         accent: hl,
         highlight: { style: "color", color: hl },
         card: "rgba(255,255,255,0.07)",
+        accent2: a,
         pattern: hl,
         patternAlpha: 0.16,
       };
@@ -117,6 +148,7 @@ function palette(design: CarouselDesign, featured: boolean): Palette {
         accent: a,
         highlight: { style: "color", color: a },
         card: "rgba(28,25,23,0.06)",
+        accent2: a,
         pattern: "#1c1917",
         patternAlpha: 0.09,
       };
@@ -129,6 +161,7 @@ function palette(design: CarouselDesign, featured: boolean): Palette {
             accent: "#ffffff",
             highlight: { style: "underline", color: "#ffffff" },
             card: "rgba(255,255,255,0.1)",
+            accent2: a,
             pattern: "#ffffff",
             patternAlpha: 0.12,
           }
@@ -139,6 +172,7 @@ function palette(design: CarouselDesign, featured: boolean): Palette {
             accent: "#0a0a0a",
             highlight: { style: "underline", color: "#0a0a0a" },
             card: "rgba(0,0,0,0.05)",
+            accent2: a,
             pattern: "#0a0a0a",
             patternAlpha: 0.08,
           };
@@ -292,6 +326,295 @@ function drawPattern(ctx: CanvasRenderingContext2D, design: CarouselDesign, p: P
       ctx.fillRect(0, 0, SLIDE_W, SLIDE_H);
       break;
     }
+    case "mesh": {
+      // Soft multi-color mesh: large overlapping glows in the accent family.
+      const cols = [design.accent, p.accent2, mix(design.accent, "#ffffff", 0.55), mix(p.accent2, "#000000", 0.25)];
+      for (let i = 0; i < 4; i++) {
+        const x = SLIDE_W * (0.1 + r() * 0.9);
+        const y = SLIDE_H * (0.05 + r() * 0.9);
+        const rad = 420 + r() * 380;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
+        g.addColorStop(0, rgba(cols[i], 1));
+        g.addColorStop(1, rgba(cols[i], 0));
+        ctx.globalAlpha = Math.min(0.9, p.patternAlpha * 2.6);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, SLIDE_W, SLIDE_H);
+      }
+      break;
+    }
+    case "constellation": {
+      const pts = Array.from({ length: 30 }, () => [r() * SLIDE_W, r() * SLIDE_H] as const);
+      ctx.lineWidth = 2;
+      for (const [x, y] of pts) {
+        const near = pts
+          .map(([px, py]) => [px, py, Math.hypot(px - x, py - y)] as const)
+          .filter(([, , d]) => d > 0 && d < 280)
+          .sort((m, n) => m[2] - n[2])
+          .slice(0, 2);
+        for (const [px, py, d] of near) {
+          ctx.globalAlpha = p.patternAlpha * (1 - d / 300);
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(px, py);
+          ctx.stroke();
+        }
+      }
+      ctx.globalAlpha = Math.min(1, p.patternAlpha * 2.2);
+      for (const [x, y] of pts) {
+        ctx.beginPath();
+        ctx.arc(x, y, 3 + r() * 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      break;
+    }
+    case "circuit": {
+      ctx.lineWidth = 4;
+      ctx.lineCap = ctx.lineJoin = "round";
+      for (let i = 0; i < 16; i++) {
+        // Traces start on the right edge or the bottom, run in, bend 45°, and end in a pad.
+        let x = r() < 0.5 ? SLIDE_W + 10 : SLIDE_W * (0.35 + r() * 0.65);
+        let y = x > SLIDE_W ? SLIDE_H * r() : SLIDE_H + 10;
+        ctx.globalAlpha = p.patternAlpha * (0.7 + r() * 0.6);
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        const run1 = 80 + r() * 220;
+        if (x > SLIDE_W) x -= run1;
+        else y -= run1;
+        ctx.lineTo(x, y);
+        const diag = 40 + r() * 120;
+        x -= diag;
+        y -= diag;
+        ctx.lineTo(x, y);
+        const run2 = 40 + r() * 160;
+        if (r() < 0.5) x -= run2;
+        else y -= run2;
+        ctx.lineTo(x, y);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, 9, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      break;
+    }
+    case "hexagons": {
+      ctx.lineWidth = 2.5;
+      const R = 52;
+      const w = Math.sqrt(3) * R;
+      for (let row = 0; row * R * 1.5 < SLIDE_H + R; row++)
+        for (let col = 0; col * w < SLIDE_W + w; col++) {
+          const cx = col * w + (row % 2 ? w / 2 : 0);
+          const cy = row * R * 1.5;
+          const fade = Math.max(0, (cx / SLIDE_W) * 1.25 - (cy / SLIDE_H) * 0.7);
+          if (fade < 0.06) continue;
+          ctx.globalAlpha = p.patternAlpha * Math.min(1, fade * 1.5);
+          ctx.beginPath();
+          for (let k = 0; k < 6; k++) {
+            const a = (Math.PI / 3) * k + Math.PI / 6;
+            const px = cx + R * Math.cos(a);
+            const py = cy + R * Math.sin(a);
+            k ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+          }
+          ctx.closePath();
+          ctx.stroke();
+        }
+      break;
+    }
+    case "lowpoly": {
+      // Jittered grid split into triangles, each a slightly different shade.
+      const cols = 6;
+      const rows = 8;
+      const cw = SLIDE_W / cols;
+      const ch = SLIDE_H / rows;
+      const pt = (i: number, j: number) => {
+        const edge = i === 0 || j === 0 || i === cols || j === rows;
+        const rr = rng(i * 131 + j * 977 + index);
+        return [i * cw + (edge ? 0 : (rr() - 0.5) * cw * 0.7), j * ch + (edge ? 0 : (rr() - 0.5) * ch * 0.7)] as const;
+      };
+      for (let i = 0; i < cols; i++)
+        for (let j = 0; j < rows; j++) {
+          const [a, b, c, d] = [pt(i, j), pt(i + 1, j), pt(i + 1, j + 1), pt(i, j + 1)];
+          for (const tri of [[a, b, c], [a, c, d]]) {
+            ctx.globalAlpha = p.patternAlpha * r() * 0.9;
+            ctx.beginPath();
+            ctx.moveTo(...tri[0]);
+            ctx.lineTo(...tri[1]);
+            ctx.lineTo(...tri[2]);
+            ctx.closePath();
+            ctx.fill();
+          }
+        }
+      break;
+    }
+    case "isometric": {
+      // A cluster of wireframe cubes in the top-right corner.
+      ctx.lineWidth = 2.5;
+      const sz = 70;
+      const hw = sz * Math.cos(Math.PI / 6);
+      for (let row = 0; row < 7; row++)
+        for (let col = 0; col < 6 - Math.floor(row / 2); col++) {
+          if (r() < 0.25) continue;
+          const cx = SLIDE_W - 40 - col * hw * 2 - (row % 2) * hw;
+          const cy = 40 + row * sz * 1.5;
+          ctx.globalAlpha = p.patternAlpha * (1.1 - row * 0.12);
+          ctx.beginPath();
+          ctx.moveTo(cx, cy - sz);
+          ctx.lineTo(cx + hw, cy - sz / 2);
+          ctx.lineTo(cx + hw, cy + sz / 2);
+          ctx.lineTo(cx, cy + sz);
+          ctx.lineTo(cx - hw, cy + sz / 2);
+          ctx.lineTo(cx - hw, cy - sz / 2);
+          ctx.closePath();
+          ctx.moveTo(cx - hw, cy - sz / 2);
+          ctx.lineTo(cx, cy);
+          ctx.lineTo(cx + hw, cy - sz / 2);
+          ctx.moveTo(cx, cy);
+          ctx.lineTo(cx, cy + sz);
+          ctx.stroke();
+        }
+      break;
+    }
+    case "confetti": {
+      const cols = [p.pattern, p.accent2, mix(p.pattern, "#ffffff", 0.4)];
+      for (let i = 0; i < 46; i++) {
+        const x = r() * SLIDE_W;
+        const y = r() * SLIDE_H;
+        // Keep the middle of the slide (where text sits) mostly clear.
+        if (x > 140 && x < SLIDE_W - 140 && y > 260 && y < SLIDE_H - 260 && r() < 0.8) continue;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(r() * Math.PI);
+        ctx.globalAlpha = Math.min(1, p.patternAlpha * 2.4);
+        ctx.fillStyle = ctx.strokeStyle = cols[i % cols.length];
+        const kind = i % 4;
+        if (kind === 0) ctx.fillRect(-12, -5, 24, 10);
+        else if (kind === 1) {
+          ctx.beginPath();
+          ctx.arc(0, 0, 7, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (kind === 2) {
+          ctx.beginPath();
+          ctx.moveTo(0, -11);
+          ctx.lineTo(10, 8);
+          ctx.lineTo(-10, 8);
+          ctx.closePath();
+          ctx.fill();
+        } else {
+          ctx.lineWidth = 4;
+          ctx.lineCap = "round";
+          ctx.beginPath();
+          ctx.moveTo(-14, 0);
+          ctx.bezierCurveTo(-7, -10, 0, 10, 7, 0);
+          ctx.bezierCurveTo(10, -5, 12, -5, 14, 0);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+      break;
+    }
+    case "sunburst": {
+      const cx = SLIDE_W + 40;
+      const cy = SLIDE_H + 40;
+      const rays = 28;
+      for (let i = 0; i < rays; i += 2) {
+        const a0 = Math.PI + (i / rays) * (Math.PI / 2);
+        const a1 = Math.PI + ((i + 1) / rays) * (Math.PI / 2);
+        ctx.globalAlpha = p.patternAlpha * 0.8;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.arc(cx, cy, 2200, a0, a1);
+        ctx.closePath();
+        ctx.fill();
+      }
+      break;
+    }
+    case "halftone": {
+      // Dots that grow toward the bottom-right corner.
+      for (let y = 20; y < SLIDE_H; y += 30)
+        for (let x = 20; x < SLIDE_W; x += 30) {
+          const t = (x / SLIDE_W + y / SLIDE_H) / 2;
+          const rad = Math.max(0, (t - 0.45) * 26);
+          if (rad < 0.6) continue;
+          ctx.globalAlpha = Math.min(1, p.patternAlpha * 1.6);
+          ctx.beginPath();
+          ctx.arc(x, y, Math.min(13, rad), 0, Math.PI * 2);
+          ctx.fill();
+        }
+      break;
+    }
+    case "squiggles": {
+      ctx.lineWidth = 7;
+      ctx.lineCap = "round";
+      for (let i = 0; i < 9; i++) {
+        const x = r() * SLIDE_W;
+        const y = r() * SLIDE_H;
+        if (x > 160 && x < SLIDE_W - 160 && y > 300 && y < SLIDE_H - 300) continue;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(r() * Math.PI);
+        ctx.globalAlpha = Math.min(1, p.patternAlpha * 2);
+        ctx.strokeStyle = i % 2 ? p.pattern : p.accent2;
+        ctx.beginPath();
+        for (let t = 0; t <= 140; t += 6) {
+          const yy = Math.sin(t / 14) * 14;
+          t ? ctx.lineTo(t - 70, yy) : ctx.moveTo(-70, yy);
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
+      break;
+    }
+    case "plus": {
+      ctx.lineWidth = 3;
+      ctx.lineCap = "round";
+      for (let y = 50; y < SLIDE_H; y += 66)
+        for (let x = 50; x < SLIDE_W; x += 66) {
+          const fade = Math.max(0, (x / SLIDE_W) * 1.2 - (y / SLIDE_H) * 0.6);
+          if (fade <= 0.05) continue;
+          ctx.globalAlpha = p.patternAlpha * Math.min(1, fade * 1.6);
+          ctx.beginPath();
+          ctx.moveTo(x - 8, y);
+          ctx.lineTo(x + 8, y);
+          ctx.moveTo(x, y - 8);
+          ctx.lineTo(x, y + 8);
+          ctx.stroke();
+        }
+      break;
+    }
+    case "arcs": {
+      // Bold concentric quarter-circles from two corners.
+      for (const [cx, cy, start] of [
+        [0, SLIDE_H, -Math.PI / 2],
+        [SLIDE_W, 0, Math.PI / 2],
+      ] as const) {
+        for (let k = 0; k < 6; k++) {
+          ctx.lineWidth = 26 - k * 3;
+          ctx.globalAlpha = p.patternAlpha * (1.2 - k * 0.15);
+          ctx.beginPath();
+          ctx.arc(cx, cy, 120 + k * 70, start, start + Math.PI / 2);
+          ctx.stroke();
+        }
+      }
+      break;
+    }
+    case "doodles": {
+      // Hand-drawn feel: ~10 small icons scattered over the whole slide, never clumped (minimum
+      // gap between them), varied in size and tilt. Ones behind the text area are drawn fainter.
+      const placed: [number, number][] = [];
+      for (let tries = 0; tries < 300 && placed.length < 10; tries++) {
+        const size = 56 + r() * 48;
+        const x = 10 + r() * (SLIDE_W - size - 20);
+        const y = 10 + r() * (SLIDE_H - size - 170);
+        const cx = x + size / 2;
+        const cy = y + size / 2;
+        if (placed.some(([px, py]) => Math.hypot(px - cx, py - cy) < 230)) continue;
+        placed.push([cx, cy]);
+        const behindText = cx > PAD && cx < SLIDE_W - PAD && cy > 200 && cy < SLIDE_H - 300;
+        ctx.globalAlpha = Math.min(1, p.patternAlpha * (behindText ? 0.75 : 1.6));
+        const id = ILLUSTRATION_IDS[Math.floor(r() * ILLUSTRATION_IDS.length)];
+        drawIllustration(ctx, id, x, y, size, p.pattern, { strokeWidth: 1.8, rotate: (r() - 0.5) * 0.9 });
+      }
+      break;
+    }
     case "corner": {
       ctx.globalAlpha = p.patternAlpha * 1.3;
       ctx.beginPath();
@@ -381,8 +704,10 @@ function drawLines(
   y: number,
   color: string,
   p: Palette,
-  { lh = 1.2, align = "left", maxW = SLIDE_W - PAD * 2 }: { lh?: number; align?: "left" | "center"; maxW?: number } = {},
+  { lh = 1.2, align, maxW = SLIDE_W - PAD * 2 }: { lh?: number; align?: "left" | "center"; maxW?: number } = {},
 ) {
+  // Full-width text blocks follow the design's alignment; inset text (list items, columns) stays left.
+  align ??= x === PAD && centered ? "center" : "left";
   ctx.font = font(f.size);
   ctx.textBaseline = "alphabetic";
   const space = ctx.measureText(" ").width;
@@ -396,7 +721,11 @@ function drawLines(
       if (word.hl) {
         // Joins with the next highlighted word so a phrase gets one continuous marker.
         const joinNext = j < line.length - 1 && line[j + 1].hl ? space : 0;
-        if (p.highlight.style === "marker") {
+        if (p.highlight.style === "pill") {
+          ctx.fillStyle = p.highlight.color;
+          roundRect(ctx, cx - 10, baseline - f.size * 0.82, w + joinNext + 20, f.size * 1.04, f.size * 0.22);
+          ctx.fill();
+        } else if (p.highlight.style === "marker") {
           ctx.fillStyle = p.highlight.color;
           ctx.fillRect(cx - 6, baseline - f.size * 0.78, w + joinNext + 12, f.size * 0.98);
         } else if (p.highlight.style === "underline") {
@@ -404,7 +733,12 @@ function drawLines(
           ctx.fillRect(cx, baseline + f.size * 0.1, w + joinNext, Math.max(4, f.size * 0.07));
         }
       }
-      ctx.fillStyle = word.hl && p.highlight.style === "color" ? p.highlight.color : color;
+      ctx.fillStyle =
+        word.hl && p.highlight.style === "color"
+          ? p.highlight.color
+          : word.hl && p.highlight.style === "pill"
+            ? (p.highlight.text ?? color)
+            : color;
       ctx.fillText(word.text, cx, baseline);
       cx += w + extra;
     });
@@ -413,6 +747,10 @@ function drawLines(
 }
 
 // --- Slide ----------------------------------------------------------------------------------------
+
+/** Set while a slide is being drawn (drawing is synchronous): center full-width text blocks. */
+let centered = false;
+const TEXT_SCALE = { s: 0.88, m: 1, l: 1.12 } as const;
 
 const fonts = (design: CarouselDesign) => {
   const pair = CAROUSEL_FONTS[design.font] ?? CAROUSEL_FONTS.inter;
@@ -490,6 +828,10 @@ export function drawSlide(
   const F = fonts(design);
   let overflow = false;
   const note = (f: Fit) => ((overflow ||= f.overflow), f);
+  centered = design.align === "center";
+  const k = TEXT_SCALE[design.textSize ?? "m"];
+  const fitT = (text: string, font: (s: number) => string, w: number, o: Parameters<typeof fit>[4]) =>
+    fit(ctx, text, font, w, { ...o, max: Math.round(o.max * k), min: Math.max(20, Math.round(o.min * k)) });
 
   // Background
   if (p.bg2) {
@@ -500,6 +842,14 @@ export function drawSlide(
   } else ctx.fillStyle = p.bg;
   ctx.fillRect(0, 0, SLIDE_W, SLIDE_H);
   drawPattern(ctx, design, p, index);
+  // Large line-art illustration, bottom-right (on the cover and last slide, or on every slide).
+  if (design.illustration && design.illustration !== "none" && (featured || design.illustrationOn === "all")) {
+    const size = featured ? 560 : 440;
+    ctx.save();
+    ctx.globalAlpha = (featured ? 0.2 : 0.12) * INTENSITY[design.intensity ?? "normal"] ** 0.5;
+    drawIllustration(ctx, design.illustration, SLIDE_W - size * 0.82, SLIDE_H - size - 120, size, p.pattern, { strokeWidth: 1.3, rotate: -0.08 });
+    ctx.restore();
+  }
   if (!featured && design.theme === "bold") {
     ctx.fillStyle = design.accent;
     ctx.fillRect(0, 0, SLIDE_W, 14);
@@ -516,20 +866,20 @@ export function drawSlide(
 
   switch (type) {
     case "cover": {
-      const h = note(fit(ctx, slide.heading, F.heading, maxW, { max: 112, min: 56, maxLines: 6, lh: 1.08 }));
-      const b = note(fit(ctx, slide.body, F.body, maxW, { max: 48, min: 32, maxLines: 3, lh: 1.35 }));
+      const h = note(fitT(slide.heading, F.heading, maxW, { max: 112, min: 56, maxLines: 6, lh: 1.08 }));
+      const b = note(fitT(slide.body, F.body, maxW, { max: 48, min: 32, maxLines: 3, lh: 1.35 }));
       const total = 34 + h.height + (b.lines.length ? 40 + b.height : 0);
       let y = startY(total) - 40;
       ctx.fillStyle = p.accent;
-      ctx.fillRect(PAD, y, 96, 12);
+      ctx.fillRect(centered ? (SLIDE_W - 96) / 2 : PAD, y, 96, 12);
       y += 34;
       y = drawLines(ctx, h, F.heading, PAD, y, p.fg, p, { lh: 1.08 });
       if (b.lines.length) drawLines(ctx, b, F.body, PAD, y + 40, p.muted, p, { lh: 1.35 });
       break;
     }
     case "text": {
-      const h = note(fit(ctx, slide.heading, F.heading, maxW, { max: 92, min: 48, maxLines: 5, lh: 1.12 }));
-      const b = note(fit(ctx, slide.body, F.body, maxW, { max: 54, min: 30, maxH: room - h.height - 48, lh: 1.4 }));
+      const h = note(fitT(slide.heading, F.heading, maxW, { max: 92, min: 48, maxLines: 5, lh: 1.12 }));
+      const b = note(fitT(slide.body, F.body, maxW, { max: 54, min: 30, maxH: room - h.height - 48, lh: 1.4 }));
       let y = startY(h.height + (b.lines.length ? 48 + b.height : 0));
       y = drawLines(ctx, h, F.heading, PAD, y, p.fg, p, { lh: 1.12 });
       if (b.lines.length) drawLines(ctx, b, F.body, PAD, y + 48, p.muted, p, { lh: 1.4 });
@@ -538,13 +888,13 @@ export function drawSlide(
     case "list":
     case "checklist": {
       const items = (slide.items ?? []).filter((t) => t.trim());
-      const h = note(fit(ctx, slide.heading, F.heading, maxW, { max: 80, min: 44, maxLines: 3, lh: 1.12 }));
+      const h = note(fitT(slide.heading, F.heading, maxW, { max: 80, min: 44, maxLines: 3, lh: 1.12 }));
       const badge = 76;
       const textW = maxW - badge - 36;
-      let size = 54;
+      let size = Math.round(54 * k);
       let fits: Fit[] = [];
       for (; size >= 26; size -= 2) {
-        fits = items.map((t) => fit(ctx, t, F.body, textW, { max: size, min: size, lh: 1.3 }));
+        fits = items.map((t) => fitT(t, F.body, textW, { max: size, min: size, lh: 1.3 }));
         const total = fits.reduce((s, f) => s + Math.max(badge, f.height) + 40, 0);
         if (total <= room - h.height - 56) break;
       }
@@ -577,13 +927,14 @@ export function drawSlide(
       break;
     }
     case "stat": {
-      const s = note(fit(ctx, slide.stat || "—", F.heading, maxW, { max: 280, min: 120, maxLines: 1, lh: 1 }));
-      const h = note(fit(ctx, slide.heading, F.headingLight, maxW, { max: 76, min: 40, maxLines: 3, lh: 1.15 }));
-      const b = note(fit(ctx, slide.body, F.body, maxW, { max: 50, min: 30, maxLines: 4, lh: 1.4 }));
+      const s = note(fitT(slide.stat || "—", F.heading, maxW, { max: 280, min: 120, maxLines: 1, lh: 1 }));
+      const h = note(fitT(slide.heading, F.headingLight, maxW, { max: 76, min: 40, maxLines: 3, lh: 1.15 }));
+      const b = note(fitT(slide.body, F.body, maxW, { max: 50, min: 30, maxLines: 4, lh: 1.4 }));
       let y = startY(s.height + 30 + h.height + (b.lines.length ? 36 + b.height : 0));
       ctx.font = F.heading(s.size);
       ctx.fillStyle = p.highlight.style === "color" ? p.highlight.color : p.fg;
-      ctx.fillText((slide.stat || "—").replace(/\*/g, ""), PAD - s.size * 0.04, y + s.size * 0.9);
+      const statText = (slide.stat || "—").replace(/\*/g, "");
+      ctx.fillText(statText, centered ? (SLIDE_W - ctx.measureText(statText).width) / 2 : PAD - s.size * 0.04, y + s.size * 0.9);
       y += s.height + 30;
       y = drawLines(ctx, h, F.headingLight, PAD, y, p.fg, p, { lh: 1.15 });
       if (b.lines.length) drawLines(ctx, b, F.body, PAD, y + 36, p.muted, p, { lh: 1.4 });
@@ -592,33 +943,33 @@ export function drawSlide(
     case "quote": {
       const serif = F.pair.heading === "Playfair Display";
       const qFont = (s: number) => (serif ? `italic 600 ${s}px "Playfair Display", serif` : F.headingLight(s));
-      const q = note(fit(ctx, slide.heading, qFont, maxW, { max: 92, min: 44, maxLines: 8, lh: 1.22 }));
+      const q = note(fitT(slide.heading, qFont, maxW, { max: 92, min: 44, maxLines: 8, lh: 1.22 }));
       const by = slide.body.trim();
       let y = startY(140 + q.height + (by ? 70 : 0));
       ctx.fillStyle = p.accent;
       ctx.globalAlpha = 0.9;
       ctx.font = `700 260px Georgia, serif`;
-      ctx.fillText("“", PAD - 14, y + 200);
+      ctx.fillText("“", centered ? SLIDE_W / 2 - 60 : PAD - 14, y + 200);
       ctx.globalAlpha = 1;
       y = drawLines(ctx, q, qFont, PAD, y + 140, p.fg, p, { lh: 1.22 });
       if (by) {
-        const a = note(fit(ctx, `— ${by.replace(/^[-—\s]+/, "")}`, F.bodyBold, maxW, { max: 40, min: 28, maxLines: 2, lh: 1.3 }));
+        const a = note(fitT(`— ${by.replace(/^[-—\s]+/, "")}`, F.bodyBold, maxW, { max: 40, min: 28, maxLines: 2, lh: 1.3 }));
         drawLines(ctx, a, F.bodyBold, PAD, y + 44, p.muted, p, { lh: 1.3 });
       }
       break;
     }
     case "compare": {
-      const h = note(fit(ctx, slide.heading, F.heading, maxW, { max: 80, min: 42, maxLines: 3, lh: 1.12 }));
+      const h = note(fitT(slide.heading, F.heading, maxW, { max: 80, min: 42, maxLines: 3, lh: 1.12 }));
       const [l1, l2] = slide.labels ?? ["Before", "After"];
       const gap = 28;
       const colW = (maxW - gap) / 2;
       const inner = colW - 64;
       const cols = [slide.items ?? [], slide.items2 ?? []];
-      let size = 46;
+      let size = Math.round(46 * k);
       let colFits: Fit[][] = [];
       let colH = 0;
       for (; size >= 24; size -= 2) {
-        colFits = cols.map((items) => items.filter((t) => t.trim()).map((t) => fit(ctx, t, F.body, inner - 40, { max: size, min: size, lh: 1.28 })));
+        colFits = cols.map((items) => items.filter((t) => t.trim()).map((t) => fitT(t, F.body, inner - 40, { max: size, min: size, lh: 1.28 })));
         colH = Math.max(...colFits.map((fs) => fs.reduce((s, f) => s + f.height + 34, 0))) + 150;
         if (colH <= room - h.height - 56) break;
       }
@@ -652,8 +1003,8 @@ export function drawSlide(
       break;
     }
     case "image": {
-      const h = note(fit(ctx, slide.heading, F.heading, maxW, { max: 64, min: 40, maxLines: 3, lh: 1.12 }));
-      const b = note(fit(ctx, slide.body, F.body, maxW, { max: 36, min: 26, maxLines: 3, lh: 1.35 }));
+      const h = note(fitT(slide.heading, F.heading, maxW, { max: 64, min: 40, maxLines: 3, lh: 1.12 }));
+      const b = note(fitT(slide.body, F.body, maxW, { max: 36, min: 26, maxLines: 3, lh: 1.35 }));
       const img = slide.image ? assets.images.get(slide.image) : undefined;
       const boxH = room - h.height - (h.lines.length ? 44 : 0) - (b.lines.length ? 36 + b.height : 0);
       let y = top;
@@ -691,8 +1042,8 @@ export function drawSlide(
       break;
     }
     case "cta": {
-      const h = note(fit(ctx, slide.heading, F.heading, maxW, { max: 88, min: 48, maxLines: 5, lh: 1.1 }));
-      const b = note(fit(ctx, slide.body, F.body, maxW, { max: 42, min: 30, maxLines: 3, lh: 1.35 }));
+      const h = note(fitT(slide.heading, F.heading, maxW, { max: 88, min: 48, maxLines: 5, lh: 1.1 }));
+      const b = note(fitT(slide.body, F.body, maxW, { max: 42, min: 30, maxLines: 3, lh: 1.35 }));
       const card = 190;
       let y = startY(h.height + (b.lines.length ? 36 + b.height : 0) + 70 + card) - 30;
       y = drawLines(ctx, h, F.heading, PAD, y, p.fg, p, { lh: 1.1 });
@@ -745,7 +1096,7 @@ export function drawSlide(
       ctx.fillText(assets.handle, tx, fy + 68);
     }
     ctx.font = F.bodyBold(30);
-    if (type === "cover") {
+    if (type === "cover" && design.swipeCue !== false) {
       const label = "Swipe  →";
       const w = ctx.measureText(label).width + 56;
       const x = SLIDE_W - PAD - w;
@@ -755,7 +1106,7 @@ export function drawSlide(
       ctx.stroke();
       ctx.fillStyle = p.fg;
       ctx.fillText(label, x + 28, fy + 47);
-    } else {
+    } else if (type !== "cover" && design.pageNumbers !== false) {
       const label = `${index + 1} / ${total}`;
       ctx.fillStyle = p.muted;
       ctx.fillText(label, SLIDE_W - PAD - ctx.measureText(label).width, fy + 46);
@@ -763,11 +1114,14 @@ export function drawSlide(
   }
 
   // Progress bar along the bottom edge.
-  ctx.fillStyle = rgba(p.fg.startsWith("#") ? p.fg : "#ffffff", 0.12);
-  ctx.fillRect(0, SLIDE_H - 12, SLIDE_W, 12);
-  ctx.fillStyle = p.accent;
-  ctx.fillRect(0, SLIDE_H - 12, (SLIDE_W * (index + 1)) / total, 12);
+  if (design.progressBar !== false) {
+    ctx.fillStyle = rgba(p.fg.startsWith("#") ? p.fg : "#ffffff", 0.12);
+    ctx.fillRect(0, SLIDE_H - 12, SLIDE_W, 12);
+    ctx.fillStyle = p.accent;
+    ctx.fillRect(0, SLIDE_H - 12, (SLIDE_W * (index + 1)) / total, 12);
+  }
 
+  centered = false;
   return { canvas, overflow };
 }
 
@@ -864,4 +1218,31 @@ export async function prepareLogo(file: File): Promise<string> {
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+/** Small preview of a background pattern in the current colors (for the designer's picker). */
+export function patternSwatch(design: CarouselDesign, pattern: CarouselDesign["pattern"], width = 84) {
+  const c = document.createElement("canvas");
+  c.width = width;
+  c.height = Math.round((width * SLIDE_H) / SLIDE_W);
+  const ctx = c.getContext("2d")!;
+  // Patterns are drawn for a 1080px slide; at thumbnail size thin lines vanish. Show the top-right
+  // region (where most patterns sit) at 2x, a little stronger, so the options are easy to tell apart.
+  // Patterns spread over the whole slide (or along the bottom) preview the full slide instead.
+  const full = ["waves", "squiggles", "confetti", "doodles", "mesh", "lowpoly", "grain", "sunburst"].includes(pattern);
+  const zoom = ((full ? 1 : 2) * width) / SLIDE_W;
+  ctx.scale(zoom, zoom);
+  if (!full) ctx.translate(-SLIDE_W / 2, 0);
+  const d = { ...design, pattern, illustration: undefined, intensity: design.intensity === "subtle" ? "normal" : "bold" } as CarouselDesign;
+  // Use an inner slide's colors for light styles (more representative), the cover's for colored ones.
+  const p = palette(d, design.theme === "gradient" || design.theme === "dark");
+  if (p.bg2) {
+    const g = ctx.createLinearGradient(0, 0, SLIDE_W, SLIDE_H);
+    g.addColorStop(0, p.bg);
+    g.addColorStop(1, p.bg2);
+    ctx.fillStyle = g;
+  } else ctx.fillStyle = p.bg;
+  ctx.fillRect(0, 0, SLIDE_W, SLIDE_H);
+  drawPattern(ctx, d, p, 3);
+  return c.toDataURL("image/png");
 }

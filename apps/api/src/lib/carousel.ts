@@ -2,6 +2,7 @@
 import { z } from "zod";
 import {
   CAROUSEL_FONTS,
+  CAROUSEL_ILLUSTRATIONS,
   CAROUSEL_PATTERNS,
   CAROUSEL_THEMES,
   MAX_CAROUSEL_SLIDES,
@@ -21,6 +22,16 @@ export const designSchema = z.object({
   pattern: z.enum(keys(CAROUSEL_PATTERNS)),
   font: z.enum(keys(CAROUSEL_FONTS)),
   accent: hex,
+  accent2: hex.optional(),
+  intensity: z.enum(["subtle", "normal", "bold"]).optional(),
+  illustration: z.enum(keys(CAROUSEL_ILLUSTRATIONS)).optional(),
+  illustrationOn: z.enum(["featured", "all"]).optional(),
+  align: z.enum(["left", "center"]).optional(),
+  textSize: z.enum(["s", "m", "l"]).optional(),
+  highlight: z.enum(["auto", "color", "marker", "underline", "pill"]).optional(),
+  pageNumbers: z.boolean().optional(),
+  progressBar: z.boolean().optional(),
+  swipeCue: z.boolean().optional(),
 });
 
 export const brandSchema = designSchema.extend({
@@ -46,6 +57,10 @@ export const slideSchema = z.object({
     .regex(/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/, "Slide images must be JPEG")
     .max(Math.ceil(MAX_SLIDE_IMAGE_BYTES * 1.37) + 100, "A slide image is too large")
     .optional(),
+  /** Private notes for this slide (never drawn on the slide or sent to LinkedIn). */
+  notes: z.string().max(500).optional(),
+  /** Locked against accidental edits in the editor. */
+  locked: z.boolean().optional(),
 });
 
 export const slidesSchema = z

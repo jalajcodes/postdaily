@@ -1,9 +1,28 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, Copy, GalleryHorizontal, ImagePlus, Palette, Plus, Sparkles, Trash2, Wand2, X } from "lucide-react";
 import {
-  ACCENT_PRESETS,
+  AlertTriangle,
+  ArrowDown,
+  BarChart3,
+  Keyboard,
+  ArrowUp,
+  ChevronDown,
+  Copy,
+  GalleryHorizontal,
+  ImagePlus,
+  Lock,
+  LockOpen,
+  Palette,
+  Plus,
+  Search,
+  Sparkles,
+  Trash2,
+  Wand2,
+  X,
+} from "lucide-react";
+import {
   CAROUSEL_FONTS,
+  CAROUSEL_ILLUSTRATIONS,
   CAROUSEL_PATTERNS,
   CAROUSEL_THEMES,
   MAX_CAROUSEL_SLIDES,
@@ -11,16 +30,18 @@ import {
   SLIDE_TYPES,
   type CarouselBrand,
   type CarouselDesign,
-  type CarouselFont,
-  type CarouselPattern,
   type CarouselSlide,
-  type CarouselTheme,
   type SlideType,
 } from "@postdaily/shared";
 import { api } from "../lib/api";
 import { buildCarouselPdf, drawSlide, prepareSlideImage, slideThumbnails, slideTypeOf } from "../lib/carousel";
 import { useCarouselAssets } from "../lib/useCarousel";
+import { UndoRedo, type HistoryState } from "../lib/carouselHistory";
+import { SLIDE_TEMPLATES } from "../lib/carouselTemplates";
+import { getCarouselStats, findAndReplace, formatReadingTime } from "../lib/carouselStats";
+import { clearDraft, draftDiffers, loadDraft, saveDraft, type CarouselDraft } from "../lib/carouselDraft";
 import { Button, ErrorText, Label, Spinner, inputCls } from "./ui";
+import { CarouselDesignPanel } from "./CarouselDesignPanel";
 
 export interface CarouselDoc {
   dataUrl: string;
@@ -48,6 +69,7 @@ function blank(type: SlideType): CarouselSlide {
 
 /** Edit a carousel's design and slides with a live preview, then build the PDF and hand it back. */
 export function CarouselEditor({
+  draftKey,
   initialTitle,
   initialSlides,
   initialDesign,
@@ -57,6 +79,8 @@ export function CarouselEditor({
   onSave,
   onCancel,
 }: {
+  /** The post's id: unsaved edits are kept per post in this browser. */
+  draftKey: string;
   initialTitle: string;
   initialSlides: CarouselSlide[];
   initialDesign: CarouselDesign | null;
@@ -74,8 +98,26 @@ export function CarouselEditor({
   const [error, setError] = useState<unknown>(null);
   const [instruction, setInstruction] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
+  const historyRef = useRef(new UndoRedo());
+  const [, setHistoryVersion] = useState(0); // re-render so Undo/Redo buttons track the ref
+  const lastTypingPush = useRef(0);
+  const lastDesignPush = useRef(0);
+  // What the editor opened with, to tell whether there are unsaved edits worth keeping.
+  const initial = useRef({ title, slides, design });
+  // A draft from an earlier session with this post, offered for restore.
+  const [restorable, setRestorable] = useState<CarouselDraft | null>(() => {
+    const d = loadDraft(draftKey);
+    return d && draftDiffers(d, initial.current) ? d : null;
+  });
+  const [showShortcuts, setShowShortcuts] = useState(false);
+
   // Phones: the style controls start folded so the slides are on screen first.
   const [showDesign, setShowDesign] = useState(() => typeof window === "undefined" || window.matchMedia("(min-width: 768px)").matches);
+  const [showStats, setShowStats] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [showFindReplace, setShowFindReplace] = useState(false);
+  const [draggedSlide, setDraggedSlide] = useState<number | null>(null);
+
   // The page behind the designer shouldn't scroll while it's open.
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -85,6 +127,64 @@ export function CarouselEditor({
     };
   }, []);
 
+  // Keep unsaved edits for this post (1 s after the last change), so a closed tab doesn't lose work.
+  useEffect(() => {
+    if (restorable || !draftDiffers({ title, slides, design, savedAt: "" }, initial.current)) return;
+    const t = setTimeout(() => saveDraft(draftKey, { title, slides, design }), 1000);
+    return () => clearTimeout(t);
+  }, [slides, design, title, draftKey, restorable]);
+
+  // Get current slide early for keyboard shortcuts
+  const current = slides[Math.min(sel, slides.length - 1)];
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Typing in a field keeps the browser's own shortcuts (including undo inside the field).
+      const t = e.target as HTMLElement | null;
+      if (t && (t.closest("input, textarea, select, [contenteditable]") || t.isContentEditable)) return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        stepHistory(e.shiftKey ? "redo" : "undo");
+        return;
+      }
+
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        setSel(Math.max(0, sel - 1));
+        return;
+      }
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        setSel(Math.min(slides.length - 1, sel + 1));
+        return;
+      }
+
+      if ((e.key === "Delete" || e.key === "Backspace") && slides.length > 2 && !current?.locked) {
+        e.preventDefault();
+        pushHistory();
+        setSlides(slides.filter((_, j: number) => j !== sel));
+        setSel(Math.max(0, sel - 1));
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        if (slides.length < MAX_CAROUSEL_SLIDES && (!current.image || imageCount < MAX_SLIDE_IMAGES)) insert({ ...current, locked: false });
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "h") {
+        e.preventDefault();
+        setShowFindReplace(true);
+        return;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
+
   const assets = useCarouselAssets(design, brand, name, slides);
   const deferredSlides = useDeferredValue(slides);
   const deferredDesign = useDeferredValue(design);
@@ -92,7 +192,6 @@ export function CarouselEditor({
     () => (assets ? slideThumbnails(deferredSlides, deferredDesign, assets, 220) : []),
     [deferredSlides, deferredDesign, assets],
   );
-  const current = slides[Math.min(sel, slides.length - 1)];
   const big = useMemo(() => {
     if (!assets || !current) return null;
     const { canvas } = drawSlide(current, sel, slides.length, deferredDesign, assets);
@@ -105,19 +204,54 @@ export function CarouselEditor({
     return c.toDataURL("image/jpeg", 0.9);
   }, [current, sel, slides.length, deferredDesign, assets]);
 
-  const update = (patch: Partial<CarouselSlide>) => setSlides(slides.map((s, j) => (j === sel ? { ...s, ...patch } : s)));
+  const stats = useMemo(() => getCarouselStats(slides), [slides]);
+
+  const pushHistory = () => {
+    historyRef.current.push({ slides, design, title });
+    setHistoryVersion((v) => v + 1);
+  };
+
+  const stepHistory = (dir: "undo" | "redo") => {
+    const now = { slides, design, title };
+    const state = dir === "undo" ? historyRef.current.undo(now) : historyRef.current.redo(now);
+    if (state) {
+      setTitle(state.title);
+      setSlides(state.slides);
+      setDesign(state.design);
+      setSel((i) => Math.min(i, state.slides.length - 1));
+    }
+    setHistoryVersion((v) => v + 1);
+  };
+
+  const update = (patch: Partial<CarouselSlide>) => {
+    // A locked slide only takes private notes.
+    if (current?.locked && Object.keys(patch).some((k) => k !== "notes")) return;
+    // Coalesce rapid typing into one undo step.
+    const t = Date.now();
+    if (t - lastTypingPush.current > 1000) pushHistory();
+    lastTypingPush.current = t;
+    setSlides(slides.map((s, j) => (j === sel ? { ...s, ...patch } : s)));
+  };
+
   const move = (d: -1 | 1) => {
+    if (current?.locked) return;
+    pushHistory();
     const next = [...slides];
     [next[sel], next[sel + d]] = [next[sel + d], next[sel]];
     setSlides(next);
     setSel(sel + d);
   };
+
   const insert = (slide: CarouselSlide) => {
+    if (slides.length >= MAX_CAROUSEL_SLIDES) return;
+    pushHistory();
     const at = Math.min(sel + 1, slides.length);
     setSlides([...slides.slice(0, at), slide, ...slides.slice(at)]);
     setSel(at);
   };
+
   const changeType = (type: SlideType) => {
+    if (current?.locked) return;
     const b = blank(type);
     update({
       type,
@@ -128,14 +262,80 @@ export function CarouselEditor({
     });
   };
 
+  const toggleLock = () => {
+    pushHistory();
+    setSlides(slides.map((s, j) => (j === sel ? { ...s, locked: !s.locked } : s)));
+  };
+
+  const applyTemplate = (templateSlides: CarouselSlide[]) => {
+    const hasWork = slides.some((s) => s.heading.trim() || s.body.trim() || s.items?.some((i) => i.trim()) || s.image);
+    const locked = slides.filter((s) => s.locked).length;
+    if (
+      hasWork &&
+      !confirm(
+        `Replace your ${slides.length} slides with this template?${locked ? ` This includes ${locked} locked slide${locked === 1 ? "" : "s"}.` : ""} You can undo it.`,
+      )
+    )
+      return;
+    pushHistory();
+    setSlides(templateSlides.map((s, i) => ({ ...s, type: slideTypeOf(s, i) })));
+    setSel(0);
+    setShowTemplates(false);
+  };
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    if (slides[index]?.locked) return e.preventDefault();
+    setDraggedSlide(index);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    if (draggedSlide === null || draggedSlide === targetIndex) {
+      setDraggedSlide(null);
+      return;
+    }
+    pushHistory();
+    const newSlides = [...slides];
+    const [moved] = newSlides.splice(draggedSlide, 1);
+    newSlides.splice(targetIndex, 0, moved);
+    setSlides(newSlides);
+    setSel(targetIndex);
+    setDraggedSlide(null);
+  };
+
+  const setD = <K extends keyof CarouselDesign>(k: K, v: CarouselDesign[K]) => {
+    // Coalesce quick changes (dragging the color picker) into one undo step.
+    const t = Date.now();
+    if (t - lastDesignPush.current > 800) pushHistory();
+    lastDesignPush.current = t;
+    setDesign((d) => ({ ...d, [k]: v }));
+  };
+  const resetDesign = () => {
+    pushHistory();
+    setDesign(designOf(brand));
+  };
+  const type = current ? slideTypeOf(current, sel) : "text";
+  const overflowCount = thumbs.filter((t) => t.overflow).length;
+
   const covers = useMutation({ mutationFn: () => api.ai.coverHeadlines(postContent || title, current.heading) });
+  // The rewrite applies to the slide it was asked for, even if you select another one meanwhile.
   const rewrite = useMutation({
-    mutationFn: () => api.ai.rewriteSlide(postContent || title, current, instruction || undefined),
-    onSuccess: ({ slide }, _v) => {
-      setSlides((all) => all.map((s, j) => (j === sel ? slide : s)));
+    mutationFn: (index: number) => api.ai.rewriteSlide(postContent || title, slides[index], instruction || undefined),
+    onSuccess: ({ slide }, index) => {
+      pushHistory();
+      setSlides((all) => all.map((s, j) => (j === index ? slide : s)));
       setInstruction("");
     },
   });
+  const runRewrite = () => {
+    if (!current?.locked && !rewrite.isPending) rewrite.mutate(sel);
+  };
   const [imageError, setImageError] = useState<unknown>(null);
   const imageCount = slides.filter((s) => s.image).length;
 
@@ -157,6 +357,7 @@ export function CarouselEditor({
       const t = title.trim() || "Carousel";
       const dataUrl = await buildCarouselPdf(clean, t, design, assets);
       await onSave({ dataUrl, title: t, slides: clean, design });
+      clearDraft(draftKey);
     } catch (e) {
       setError(e);
     } finally {
@@ -164,13 +365,8 @@ export function CarouselEditor({
     }
   };
 
-  const setD = <K extends keyof CarouselDesign>(k: K, v: CarouselDesign[K]) => setDesign((d) => ({ ...d, [k]: v }));
-  const type = current ? slideTypeOf(current, sel) : "text";
-  const overflowCount = thumbs.filter((t) => t.overflow).length;
-
   return (
     <div className="space-y-4">
-      {/* Design */}
       <button
         className="flex w-full items-center gap-2 rounded-lg bg-slate-50 px-3 py-3 text-left text-sm font-medium md:hidden"
         onClick={() => setShowDesign(!showDesign)}
@@ -181,90 +377,170 @@ export function CarouselEditor({
           Style, pattern, font &amp; color
           <span className="block text-xs font-normal text-slate-500">
             {CAROUSEL_THEMES[design.theme].split(":")[0]} · {CAROUSEL_PATTERNS[design.pattern]} · {CAROUSEL_FONTS[design.font].label}
+            {design.illustration && design.illustration !== "none" ? ` · ${CAROUSEL_ILLUSTRATIONS[design.illustration]}` : ""}
           </span>
         </span>
         <span className="size-4 rounded-full" style={{ background: design.accent }} />
         <ChevronDown className={`size-4 transition-transform ${showDesign ? "rotate-180" : ""}`} />
       </button>
-      <div className={`grid gap-3 rounded-lg bg-slate-50 p-3 sm:grid-cols-2 lg:grid-cols-4 ${showDesign ? "" : "hidden md:grid"}`}>
-        <div>
-          <Label>Style</Label>
-          <select className={inputCls} value={design.theme} onChange={(e) => setD("theme", e.target.value as CarouselTheme)}>
-            {Object.entries(CAROUSEL_THEMES).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ))}
-          </select>
+
+      {restorable && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <span className="min-w-0 flex-1">
+            You have unsaved changes to this carousel from {new Date(restorable.savedAt).toLocaleString()}.
+          </span>
+          <Button
+            variant="secondary"
+            className="py-1 text-xs"
+            onClick={() => {
+              pushHistory();
+              setTitle(restorable.title);
+              setSlides(restorable.slides);
+              setDesign(restorable.design);
+              setSel(0);
+              setRestorable(null);
+            }}
+          >
+            Restore
+          </Button>
+          <Button
+            variant="ghost"
+            className="py-1 text-xs"
+            onClick={() => {
+              clearDraft(draftKey);
+              setRestorable(null);
+            }}
+          >
+            Discard
+          </Button>
         </div>
-        <div>
-          <Label>Background pattern</Label>
-          <select className={inputCls} value={design.pattern} onChange={(e) => setD("pattern", e.target.value as CarouselPattern)}>
-            {Object.entries(CAROUSEL_PATTERNS).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ))}
-          </select>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="ghost"
+          className="py-1.5 text-xs"
+          onClick={() => setShowTemplates(!showTemplates)}
+        >
+          <Plus className="size-3.5" /> Template
+        </Button>
+        <Button
+          variant="ghost"
+          className="py-1.5 text-xs"
+          onClick={() => setShowFindReplace(!showFindReplace)}
+        >
+          <Search className="size-3.5" /> Find &amp; replace
+        </Button>
+        <Button
+          variant="ghost"
+          className="py-1.5 text-xs"
+          onClick={() => setShowStats(!showStats)}
+        >
+          <BarChart3 className="size-3.5" /> Stats
+        </Button>
+        <Button variant="ghost" className="py-1.5 text-xs" onClick={() => setShowShortcuts(!showShortcuts)}>
+          <Keyboard className="size-3.5" /> Shortcuts
+        </Button>
+        <span className="flex-1" />
+        <Button variant="ghost" className="py-1.5 text-xs" disabled={!historyRef.current.canUndo()} onClick={() => stepHistory("undo")} title="Undo (Ctrl+Z)">
+          Undo
+        </Button>
+        <Button variant="ghost" className="py-1.5 text-xs" disabled={!historyRef.current.canRedo()} onClick={() => stepHistory("redo")} title="Redo (Ctrl+Shift+Z)">
+          Redo
+        </Button>
+      </div>
+
+      {showShortcuts && (
+        <div className="grid gap-x-6 gap-y-1.5 rounded-lg border border-slate-200 bg-white p-4 text-sm sm:grid-cols-2">
+          {[
+            ["Ctrl/⌘ + Z", "Undo"],
+            ["Ctrl/⌘ + Shift + Z", "Redo"],
+            ["← / →", "Previous / next slide"],
+            ["Ctrl/⌘ + D", "Duplicate slide"],
+            ["Delete", "Delete slide"],
+            ["Ctrl/⌘ + H", "Find & replace"],
+            ["Enter (in the rewrite box)", "Rewrite this slide"],
+          ].map(([k, v]) => (
+            <div key={k} className="flex items-center justify-between gap-3">
+              <span className="text-slate-600">{v}</span>
+              <kbd className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-700">{k}</kbd>
+            </div>
+          ))}
+          <p className="text-xs text-slate-500 sm:col-span-2">Shortcuts work when you're not typing in a field.</p>
         </div>
-        <div>
-          <Label>Font</Label>
-          <div className="flex flex-wrap gap-1.5">
-            {(Object.entries(CAROUSEL_FONTS) as [CarouselFont, (typeof CAROUSEL_FONTS)[CarouselFont]][]).map(([k, f]) => (
+      )}
+
+      {showTemplates && (
+        <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
+          <h3 className="font-medium text-sm">Slide templates</h3>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {SLIDE_TEMPLATES.map((template) => (
               <button
-                key={k}
-                onClick={() => setD("font", k)}
-                style={{ fontFamily: `"${f.heading}"` }}
-                className={`rounded-md border px-2.5 py-1 text-sm font-semibold ${design.font === k ? "border-brand-500 bg-brand-50 text-brand-700" : "border-slate-200 bg-white hover:bg-slate-100"}`}
+                key={template.name}
+                onClick={() => applyTemplate(template.slides)}
+                className="text-left rounded-lg border border-slate-200 p-3 hover:bg-brand-50 hover:border-brand-300 transition"
               >
-                {f.label}
+                <div className="font-medium text-sm">{template.name}</div>
+                <div className="text-xs text-slate-500">{template.description}</div>
               </button>
             ))}
           </div>
         </div>
-        <div>
-          <Label>Accent color</Label>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {ACCENT_PRESETS.map((c) => (
-              <button
-                key={c}
-                onClick={() => setD("accent", c)}
-                className={`size-7 rounded-full border-2 ${design.accent.toLowerCase() === c ? "border-slate-900" : "border-white shadow"}`}
-                style={{ background: c }}
-                aria-label={`Accent ${c}`}
-              />
-            ))}
-            <input
-              type="color"
-              value={design.accent}
-              onChange={(e) => setD("accent", e.target.value)}
-              className="size-7 cursor-pointer rounded border-0 bg-transparent p-0"
-              aria-label="Custom accent color"
-            />
+      )}
+
+      {showFindReplace && <FindReplacePanel slides={slides} onReplace={(newSlides) => {
+        pushHistory();
+        setSlides(newSlides);
+        setShowFindReplace(false);
+      }} onClose={() => setShowFindReplace(false)} />}
+
+      {showStats && (
+        <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
+          <h3 className="font-medium text-sm">Carousel statistics</h3>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Stat label="Total characters" value={stats.totalCharacters.toString()} />
+            <Stat label="Total words" value={stats.totalWords.toString()} />
+            <Stat label="Avg per slide" value={stats.averageSlideLength.toString()} />
+            <Stat label="Reading time" value={formatReadingTime(stats.estimatedReadingTimeSeconds)} />
           </div>
         </div>
-        <button className="justify-self-start text-xs text-slate-500 hover:text-brand-600 sm:col-span-2 lg:col-span-4" onClick={() => setDesign(designOf(brand))}>
-          Reset to my brand defaults (Settings → Carousel brand)
-        </button>
+      )}
+
+      <div className={showDesign ? "" : "hidden md:block"}>
+        <CarouselDesignPanel design={design} set={setD} onReset={resetDesign} />
       </div>
 
-      {/* Slide strip */}
       <div className="flex gap-2 overflow-x-auto pb-1">
         {!assets && <Spinner />}
         {thumbs.map((t, i) => (
-          <button
+          <div
             key={i}
-            onClick={() => setSel(i)}
-            className={`relative shrink-0 rounded-md border-2 ${i === sel ? "border-brand-500" : "border-transparent"}`}
-            aria-label={`Edit slide ${i + 1}`}
+            draggable={!slides[i]?.locked}
+            onDragStart={(e) => handleDragStart(e, i)}
+            onDragOver={handleDragOver}
+            onDrop={(e) => handleDrop(e, i)}
+            className={`relative shrink-0 rounded-md border-2 transition ${slides[i]?.locked ? "" : "cursor-move"} ${
+              draggedSlide === i ? "opacity-50" : ""
+            } ${i === sel ? "border-brand-500" : "border-transparent"}`}
           >
-            <img src={t.src} alt="" className="h-32 rounded" />
-            {t.overflow && (
-              <span className="absolute top-1 right-1 rounded-full bg-amber-500 p-0.5 text-white" title="Text is squeezed on this slide">
-                <AlertTriangle className="size-3" />
-              </span>
-            )}
-          </button>
+            <button
+              onClick={() => setSel(i)}
+              className="relative block"
+              aria-label={`Edit slide ${i + 1}`}
+            >
+              <img src={t.src} alt="" className="h-32 rounded" />
+              {t.overflow && (
+                <span className="absolute top-1 right-1 rounded-full bg-amber-500 p-0.5 text-white" title="Text is squeezed on this slide">
+                  <AlertTriangle className="size-3" />
+                </span>
+              )}
+              {slides[i]?.locked && (
+                <span className="absolute bottom-1 right-1 rounded-full bg-slate-900 p-0.5 text-white" title="Slide is locked">
+                  <Lock className="size-3" />
+                </span>
+              )}
+            </button>
+          </div>
         ))}
         <button
           onClick={() => insert(blank("text"))}
@@ -288,7 +564,7 @@ export function CarouselEditor({
           <div className="space-y-2.5">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-medium">Slide {sel + 1}</span>
-              <select className={`${inputCls} w-auto py-1 text-sm`} value={type} onChange={(e) => changeType(e.target.value as SlideType)}>
+              <select className={`${inputCls} w-auto py-1 text-sm`} value={type} onChange={(e) => changeType(e.target.value as SlideType)} disabled={current?.locked}>
                 {Object.entries(SLIDE_TYPES).map(([k, v]) => (
                   <option key={k} value={k} disabled={k === "image" && type !== "image" && imageCount >= MAX_SLIDE_IMAGES}>
                     {v}
@@ -296,23 +572,27 @@ export function CarouselEditor({
                 ))}
               </select>
               <span className="flex-1" />
-              <IconBtn label="Move left" disabled={sel === 0} onClick={() => move(-1)}>
+              <IconBtn label={current?.locked ? "Unlock slide" : "Lock slide"} onClick={toggleLock}>
+                {current?.locked ? <Lock className="size-4" /> : <LockOpen className="size-4" />}
+              </IconBtn>
+              <IconBtn label="Move left" disabled={sel === 0 || current?.locked} onClick={() => move(-1)}>
                 <ArrowUp className="size-4 -rotate-90" />
               </IconBtn>
-              <IconBtn label="Move right" disabled={sel === slides.length - 1} onClick={() => move(1)}>
+              <IconBtn label="Move right" disabled={sel === slides.length - 1 || current?.locked} onClick={() => move(1)}>
                 <ArrowDown className="size-4 -rotate-90" />
               </IconBtn>
               <IconBtn
                 label="Duplicate"
                 disabled={slides.length >= MAX_CAROUSEL_SLIDES || (!!current.image && imageCount >= MAX_SLIDE_IMAGES)}
-                onClick={() => insert({ ...current })}
+                onClick={() => insert({ ...current, locked: false })}
               >
                 <Copy className="size-4" />
               </IconBtn>
               <IconBtn
                 label="Delete slide"
-                disabled={slides.length <= 2}
+                disabled={slides.length <= 2 || current?.locked}
                 onClick={() => {
+                  pushHistory();
                   setSlides(slides.filter((_, j) => j !== sel));
                   setSel(Math.max(0, sel - 1));
                 }}
@@ -321,6 +601,12 @@ export function CarouselEditor({
               </IconBtn>
             </div>
 
+            {current.locked && (
+              <p className="flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-600">
+                <Lock className="size-4" /> This slide is locked. Unlock it to edit; notes stay editable.
+              </p>
+            )}
+            <fieldset disabled={!!current.locked} className="min-w-0 space-y-2.5 disabled:opacity-60">
             <Field label={type === "quote" ? "Quote" : type === "stat" ? "What the number means" : "Heading"} hint="*stars* highlight words">
               <textarea className={`${inputCls} min-h-14 resize-y font-medium`} maxLength={200} value={current.heading} onChange={(e) => update({ heading: e.target.value })} />
             </Field>
@@ -417,13 +703,26 @@ export function CarouselEditor({
                 value={instruction}
                 maxLength={300}
                 onChange={(e) => setInstruction(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && rewrite.mutate()}
+                onKeyDown={(e) => e.key === "Enter" && runRewrite()}
               />
-              <Button variant="secondary" loading={rewrite.isPending} onClick={() => rewrite.mutate()}>
+              <Button variant="secondary" loading={rewrite.isPending} onClick={runRewrite}>
                 <Wand2 className="size-4" /> Rewrite
               </Button>
             </div>
             <ErrorText error={rewrite.error} />
+            </fieldset>
+
+            <div className="border-t border-slate-100 pt-2">
+              <Field label="Private notes" hint="never shown on the slide">
+                <textarea
+                  className={`${inputCls} min-h-10 resize-none`}
+                  maxLength={500}
+                  placeholder="Source, context, reminders… also used as context when you rewrite this slide"
+                  value={current.notes ?? ""}
+                  onChange={(e) => update({ notes: e.target.value })}
+                />
+              </Field>
+            </div>
           </div>
         </div>
       )}
@@ -433,9 +732,14 @@ export function CarouselEditor({
         <input className={inputCls} value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} />
       </div>
       <ErrorText error={error} />
-      {/* Pinned to the bottom on phones so Attach is always in reach. */}
       <div className="sticky bottom-0 -mx-4 flex items-center justify-end gap-2 border-t border-slate-100 bg-white px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:static sm:mx-0 sm:border-0 sm:px-0 sm:pt-0 sm:pb-0">
-        <Button variant="ghost" onClick={onCancel}>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            clearDraft(draftKey);
+            onCancel();
+          }}
+        >
           Cancel
         </Button>
         <Button className="flex-1 sm:flex-none" onClick={save} loading={saving} disabled={!assets}>
@@ -487,6 +791,99 @@ function Items({ label, items, onChange }: { label: string; items: string[]; onC
             + Add point
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-white p-3 border border-slate-200">
+      <div className="text-xs text-slate-600">{label}</div>
+      <div className="text-lg font-semibold text-slate-900">{value}</div>
+    </div>
+  );
+}
+
+function FindReplacePanel({
+  slides,
+  onReplace,
+  onClose,
+}: {
+  slides: CarouselSlide[];
+  onReplace: (slides: CarouselSlide[]) => void;
+  onClose: () => void;
+}) {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [replaceTerm, setReplaceTerm] = useState("");
+  const [caseSensitive, setCaseSensitive] = useState(false);
+
+  const preview = searchTerm ? findAndReplace(slides, searchTerm, replaceTerm, caseSensitive) : slides;
+  const changeCount = searchTerm
+    ? slides.reduce((count, slide, i) => {
+        const original = JSON.stringify(slide);
+        const updated = JSON.stringify(preview[i]);
+        return original === updated ? count : count + 1;
+      }, 0)
+    : 0;
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="font-medium text-sm">Find and replace</h3>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+          <X className="size-4" />
+        </button>
+      </div>
+      <div className="space-y-2">
+        <Field label="Find">
+          <input
+            className={inputCls}
+            placeholder="Search term"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </Field>
+        <Field label="Replace with">
+          <input
+            className={inputCls}
+            placeholder="Replacement text"
+            value={replaceTerm}
+            onChange={(e) => setReplaceTerm(e.target.value)}
+          />
+        </Field>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={caseSensitive}
+            onChange={(e) => setCaseSensitive(e.target.checked)}
+            className="rounded"
+          />
+          Case sensitive
+        </label>
+      </div>
+      {searchTerm && (
+        <div className="text-xs text-slate-600">
+          Will update {changeCount} slide{changeCount === 1 ? "" : "s"}
+        </div>
+      )}
+      <div className="flex gap-2">
+        <Button
+          variant="ghost"
+          className="flex-1 py-2 text-sm"
+          onClick={onClose}
+        >
+          Cancel
+        </Button>
+        <Button
+          className="flex-1 py-2 text-sm"
+          disabled={!searchTerm}
+          onClick={() => {
+            onReplace(findAndReplace(slides, searchTerm, replaceTerm, caseSensitive));
+          }}
+        >
+          Replace all
+        </Button>
       </div>
     </div>
   );

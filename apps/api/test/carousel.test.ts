@@ -93,6 +93,41 @@ test("make a carousel from an idea: caption becomes the post, slides are typed a
   assert.equal(doc.body.hasDocument, true);
   assert.equal(doc.body.carouselDesign.theme, "paper");
   assert.equal(doc.body.carouselSlides[2].image, jpeg);
+
+  // Private notes and lock state are kept when the carousel is saved.
+  const withNotes = [{ type: "text", heading: "A", body: "", notes: "source: Q3 report", locked: true }, { heading: "B", body: "" }];
+  const saved = await call("PUT", `/posts/${p.id}/document`, { dataUrl: pdf, title: "t", slides: withNotes });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  assert.equal(saved.body.carouselSlides[0].notes, "source: Q3 report");
+  assert.equal(saved.body.carouselSlides[0].locked, true);
+});
+
+test("design extras (illustration, alignment, text size, footer...) are saved; bad values rejected", async () => {
+  const { body: post } = await call("POST", "/posts", { content: "x" });
+  const slides = [{ heading: "a", body: "" }, { heading: "b", body: "" }];
+  const rich = {
+    ...design,
+    pattern: "constellation",
+    accent2: "#f59e0b",
+    intensity: "bold",
+    illustration: "rocket",
+    illustrationOn: "all",
+    align: "center",
+    textSize: "l",
+    highlight: "pill",
+    pageNumbers: false,
+    progressBar: true,
+    swipeCue: false,
+  };
+  const ok = await call("PUT", `/posts/${post.id}/document`, { dataUrl: pdf, title: "t", slides, design: rich });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.deepEqual(ok.body.carouselDesign, rich);
+  for (const bad of [{ illustration: "dragon" }, { textSize: "xl" }, { accent2: "orange" }, { highlight: "glow" }]) {
+    const r = await call("PUT", `/posts/${post.id}/document`, { dataUrl: pdf, title: "t", slides, design: { ...rich, ...bad } });
+    assert.equal(r.status, 400, JSON.stringify(bad));
+  }
+  // Older designs without the extras are still valid.
+  assert.equal((await call("PUT", `/posts/${post.id}/document`, { dataUrl: pdf, title: "t", slides, design })).status, 200);
 });
 
 test("document validation: too many slide images, bad slide image type, bad design", async () => {
@@ -133,6 +168,12 @@ test("cover headlines and single-slide rewrite (keeps the slide's image)", async
   assert.equal(r.body.slide.image, jpeg, "image kept");
   assert.ok(!prompts.at(-1)!.includes("fakejpeg") && !prompts.at(-1)!.includes(jpeg), "image bytes are not sent to the AI");
   assert.match(prompts.at(-1)!, /make it a checklist/);
+
+  // Notes are kept and given to the AI as context (not as slide content).
+  const n = await call("POST", "/ai/carousel/slide", { content: "post", slide: { type: "text", heading: "Old", body: "", notes: "cite the 2025 survey" } });
+  assert.equal(n.body.slide.notes, "cite the 2025 survey");
+  assert.match(prompts.at(-1)!, /private notes[\s\S]*cite the 2025 survey/);
+  assert.ok(!/"notes"/.test(prompts.at(-1)!), "notes are not part of the slide JSON");
 });
 
 test("carousel caption rewrite is a quick fix", async () => {

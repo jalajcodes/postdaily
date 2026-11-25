@@ -379,14 +379,14 @@ export async function rewriteSlide(
   slide: CarouselSlide,
   instruction?: string,
 ): Promise<CarouselSlide> {
-  const { image: _image, ...rest } = slide;
+  const { image: _image, notes, locked: _locked, ...rest } = slide;
   const prompt = `Rewrite this slide of a LinkedIn document carousel. ${instruction?.trim() || "Make it sharper and more specific, and keep it short."}
 
 ${SLIDE_GUIDE}
 
 Current slide (keep its type unless asked to change it):
 ${JSON.stringify(rest)}
-
+${notes?.trim() ? `\nThe author's private notes for this slide (use as context; never put them on the slide):\n${notes.trim()}\n` : ""}
 The carousel is about this post:
 <post>
 ${content.slice(0, 3000)}
@@ -395,7 +395,13 @@ ${content.slice(0, 3000)}
 Respond with only JSON: the rewritten slide object, e.g. {"type":"${slide.type ?? "text"}","heading":"...","body":"..."}`;
   const text = await complete(settings.aiProvider, { system: systemPrompt(profile), prompt, model: settings.aiModel, effort: "low" });
   const next = parseJson(text, aiSlideSchema);
-  return slide.image ? { ...next, image: slide.image } : next;
+  // Keep what the AI doesn't own: the image, private notes and lock state.
+  return {
+    ...next,
+    ...(slide.image ? { image: slide.image } : {}),
+    ...(slide.notes ? { notes: slide.notes } : {}),
+    ...(slide.locked ? { locked: true } : {}),
+  };
 }
 
 /** Formats rotated across a planned week, so posts written in parallel don't come out alike. */
