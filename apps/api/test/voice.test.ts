@@ -4,7 +4,7 @@ import { before, test } from "node:test";
 import { createApp } from "../src/app";
 import { createSession } from "../src/lib/auth";
 import { setEnv } from "../src/runtime/env";
-import { setAiBinding, WHISPER_MODEL } from "../src/ai/transcribe";
+import { resetTranscribeState, setAiBinding, WHISPER_FALLBACK, WHISPER_MODEL } from "../src/ai/transcribe";
 import { createUser, json, setup } from "./helpers";
 
 let t: Awaited<ReturnType<typeof setup>>;
@@ -28,6 +28,7 @@ before(async () => {
 });
 
 test("Cloudflare: sends base64 audio to Whisper with VAD and returns trimmed text", async () => {
+  resetTranscribeState();
   const calls: { model: string; input: any }[] = [];
   setAiBinding({ run: async (model: string, input: any) => (calls.push({ model, input }), { text: "  so we shipped it in two days  " }) });
   const r = await send(audio);
@@ -41,6 +42,7 @@ test("Cloudflare: sends base64 audio to Whisper with VAD and returns trimmed tex
 });
 
 test("rejects non-audio, empty and oversized uploads, and silence", async () => {
+  resetTranscribeState();
   setAiBinding({ run: async () => ({ text: "" }) });
   assert.equal((await send(audio, "application/json")).status, 415);
   assert.equal((await send(new Uint8Array(10))).status, 400);
@@ -50,11 +52,51 @@ test("rejects non-audio, empty and oversized uploads, and silence", async () => 
   assert.match(silent.body.error, /Didn't catch any words/);
 });
 
-test("a Workers AI failure comes back as a readable error", async () => {
+test("when Whisper Turbo fails, falls back to the original Whisper (bytes as an array)", async () => {
+  const calls: { model: string; input: any }[] = [];
+  setAiBinding({
+    run: async (model: string, input: any) => {
+      calls.push({ model, input });
+      if (model === WHISPER_MODEL) throw new Error("3043: Transcription failed: Library libcublas.so.12 is not found");
+      return { text: "fallback words " };
+    },
+  });
+  const r = await send(audio);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.text, "fallback words");
+  assert.deepEqual(calls.map((c) => c.model), [WHISPER_MODEL, WHISPER_FALLBACK]);
+  assert.ok(Array.isArray(calls[1].input.audio));
+  assert.deepEqual(Buffer.from(calls[1].input.audio), audio, "same bytes reach the fallback");
+
+  // Turbo is skipped for a while after failing.
+  calls.length = 0;
+  await send(audio);
+  assert.deepEqual(calls.map((c) => c.model), [WHISPER_FALLBACK]);
+  resetTranscribeState();
+});
+
+test("the fallback is retried once", async () => {
+  resetTranscribeState();
+  let n = 0;
+  setAiBinding({
+    run: async (model: string) => {
+      if (model === WHISPER_MODEL) throw new Error("3043");
+      if (++n === 1) throw new Error("3046: Request timeout");
+      return { text: "second try" };
+    },
+  });
+  const r = await send(audio);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.text, "second try");
+  assert.equal(n, 2);
+});
+
+test("when both models fail, a readable error comes back", async () => {
+  resetTranscribeState();
   setAiBinding({ run: async () => { throw new Error("3010: Invalid or incomplete input"); } });
   const r = await send(audio);
   assert.equal(r.status, 502);
-  assert.match(r.body.error, /Transcription failed: 3010/);
+  assert.match(r.body.error, /Transcription failed: 3010.*try again in a minute/);
 });
 
 test("Mac server: uses OpenAI when a key is set, otherwise explains what's needed", async () => {

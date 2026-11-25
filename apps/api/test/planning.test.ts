@@ -134,9 +134,12 @@ test("plan my week keeps the posts that worked when one AI call fails", async ()
     const themes = [...prompt.matchAll(/^\d+\. (.+?) \| format:/gm)].map((m) => m[1]);
     return { posts: themes.map((th) => `Post on ${th}`) };
   };
+  // How many slots are free depends on the time of day the test runs (and earlier tests).
+  const free = (await freeSlots("u1", 7, 10)).length;
+  assert.ok(free >= 6, `need at least 3 chunks, have ${free} free slots`);
   const r = await call("POST", "/plan/week", { days: 7 });
   assert.equal(r.status, 200);
-  assert.equal(r.body.items.length + r.body.missing, 10);
+  assert.equal(r.body.items.length + r.body.missing, free);
   assert.equal(r.body.missing, 2);
   assert.ok(flakyFailed, "flaky chunk was retried");
 });
