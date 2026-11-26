@@ -5,6 +5,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { AI_PROVIDER_LABELS, type AIProviderId, type ModelOption, type ProviderStatus } from "@postdaily/shared";
 import { env } from "../runtime/env";
+import { resolveKey } from "../lib/keystore";
 
 export interface CompleteArgs {
   system: string;
@@ -19,14 +20,27 @@ export class AIError extends Error {}
 export type Provider = (args: CompleteArgs) => Promise<string>;
 type StatusCheck = () => Promise<{ available: boolean; note: string }>;
 
+/** SDK clients, one per API key (each user may have their own). */
+function clientCache<C>(make: (key: string) => C) {
+  const cache = new Map<string, C>();
+  return (key: string) => {
+    let c = cache.get(key);
+    if (!c) {
+      if (cache.size >= 50) cache.clear();
+      c = make(key);
+      cache.set(key, c);
+    }
+    return c;
+  };
+}
+
 // --- Anthropic API key ---
-let anthropicClient: { key: string; client: Anthropic } | null = null;
+const anthropicClient = clientCache((apiKey) => new Anthropic({ apiKey }));
 const anthropic: Provider = async ({ system, prompt, model, effort = "medium" }) => {
-  const key = env("ANTHROPIC_API_KEY");
-  if (!key) throw new AIError("Set ANTHROPIC_API_KEY to use the Anthropic provider.");
-  if (anthropicClient?.key !== key) anthropicClient = { key, client: new Anthropic({ apiKey: key }) };
+  const key = (await resolveKey("anthropic"))?.key;
+  if (!key) throw new AIError("Add an Anthropic API key in Settings to use the Anthropic provider.");
   try {
-    const res = await anthropicClient.client.beta.messages.create({
+    const res = await anthropicClient(key).beta.messages.create({
       model,
       max_tokens: 16000,
       system,
@@ -49,12 +63,11 @@ const anthropic: Provider = async ({ system, prompt, model, effort = "medium" })
 };
 
 // --- OpenAI ---
-let openaiClient: { key: string; client: OpenAI } | null = null;
+const openaiClient = clientCache((apiKey) => new OpenAI({ apiKey }));
 const openai: Provider = async ({ system, prompt, model }) => {
-  const key = env("OPENAI_API_KEY");
-  if (!key) throw new AIError("Set OPENAI_API_KEY to use the OpenAI provider.");
-  if (openaiClient?.key !== key) openaiClient = { key, client: new OpenAI({ apiKey: key }) };
-  const res = await openaiClient.client.chat.completions.create({
+  const key = (await resolveKey("openai"))?.key;
+  if (!key) throw new AIError("Add an OpenAI API key in Settings to use the OpenAI provider.");
+  const res = await openaiClient(key).chat.completions.create({
     model,
     messages: [
       { role: "system", content: system },
@@ -88,24 +101,22 @@ async function freeFallbacks(model: string) {
   }
 }
 
-let openrouterClient: { key: string; client: OpenAI } | null = null;
+const openrouterClient = clientCache(
+  (apiKey) =>
+    new OpenAI({
+      apiKey,
+      baseURL: OPENROUTER_URL,
+      defaultHeaders: { "X-Title": "PostDaily" },
+      timeout: OPENROUTER_TIMEOUT_MS,
+      maxRetries: 0, // OpenRouter's own fallbacks handle busy models; retries would just double the wait
+    }),
+);
 const openrouter: Provider = async ({ system, prompt, model }) => {
-  const key = env("OPENROUTER_API_KEY");
-  if (!key) throw new AIError("Set OPENROUTER_API_KEY to use OpenRouter (free key at openrouter.ai/keys).");
-  if (openrouterClient?.key !== key)
-    openrouterClient = {
-      key,
-      client: new OpenAI({
-        apiKey: key,
-        baseURL: OPENROUTER_URL,
-        defaultHeaders: { "X-Title": "PostDaily" },
-        timeout: OPENROUTER_TIMEOUT_MS,
-        maxRetries: 0, // OpenRouter's own fallbacks handle busy models; retries would just double the wait
-      }),
-    };
+  const key = (await resolveKey("openrouter"))?.key;
+  if (!key) throw new AIError("Add an OpenRouter API key in Settings (free key at openrouter.ai/keys).");
   const fallbacks = await freeFallbacks(model);
   try {
-    const res = await openrouterClient.client.chat.completions.create({
+    const res = await openrouterClient(key).chat.completions.create({
       model,
       messages: [
         { role: "system", content: system },
@@ -191,18 +202,17 @@ const ollama: Provider = async ({ system, prompt, model }) => {
 
 const providers: Partial<Record<AIProviderId, Provider>> = { anthropic, openrouter, openai, ollama };
 
+async function keyStatus(provider: "anthropic" | "openrouter" | "openai", missing: string) {
+  const k = await resolveKey(provider);
+  if (!k) return { available: false, note: missing };
+  return { available: true, note: k.source === "user" ? `Using your key (…${k.key.slice(-4)})` : "Using the server's key" };
+}
+
 const statusChecks: Record<AIProviderId, StatusCheck> = {
   "claude-code": async () => ({ available: false, note: "Only available when running PostDaily on your Mac" }),
-  anthropic: async () =>
-    env("ANTHROPIC_API_KEY")
-      ? { available: true, note: "ANTHROPIC_API_KEY set" }
-      : { available: false, note: "Set ANTHROPIC_API_KEY" },
-  openrouter: async () =>
-    env("OPENROUTER_API_KEY")
-      ? { available: true, note: "OPENROUTER_API_KEY set" }
-      : { available: false, note: "Set OPENROUTER_API_KEY (free key at openrouter.ai/keys)" },
-  openai: async () =>
-    env("OPENAI_API_KEY") ? { available: true, note: "OPENAI_API_KEY set" } : { available: false, note: "Set OPENAI_API_KEY" },
+  anthropic: () => keyStatus("anthropic", "Add an Anthropic API key below"),
+  openrouter: () => keyStatus("openrouter", "Add an OpenRouter key below (free at openrouter.ai/keys)"),
+  openai: () => keyStatus("openai", "Add an OpenAI API key below"),
   ollama: async () => {
     const url = ollamaUrl();
     if (!url) return { available: false, note: "Set OLLAMA_URL" };

@@ -1,6 +1,7 @@
 // Prompt building and the AI features: drafts, rewrites, ideas, style analysis.
 import { z } from "zod";
-import type { Carousel, CarouselSlide, Draft, PostLength, Profile, RewriteAction, Settings } from "@postdaily/shared";
+import { hashtagsIn, normalizeHashtag } from "@postdaily/shared";
+import type { Carousel, CarouselSlide, Draft, HashtagSuggestion, PostLength, Profile, RewriteAction, Settings } from "@postdaily/shared";
 import { aiSlideSchema } from "../lib/carousel";
 import { AIError, complete } from "./providers";
 
@@ -285,6 +286,55 @@ Respond with only JSON: {"hooks":["...","...","..."]}. Use \\n for a line break 
     .hooks.map((h) => stripMarkdown(h))
     .filter(Boolean)
     .slice(0, 3);
+}
+
+/**
+ * Hashtags for a post: a few broad, widely followed ones plus more specific ones. The AI picks
+ * hashtags that are popular on LinkedIn from what it knows; LinkedIn has no public API for live
+ * trending hashtags. Hashtags already in the post are left out.
+ */
+export async function generateHashtags(settings: Settings, profile: VoiceProfile, content: string): Promise<HashtagSuggestion[]> {
+  const prompt = `Suggest hashtags for this LinkedIn post that will help the right people find it.
+
+Give 10 real hashtags that people actively follow and use on LinkedIn right now (${new Date().getFullYear()}):
+- 4 "broad" ones: large, widely followed hashtags for the post's field (e.g. #Leadership, #Marketing).
+- 6 "niche" ones: more specific to this post's topic, still commonly used. Prefer ones that are popular at the moment.
+Never make up hashtags nobody uses, and don't repeat ones the post already has. Use CamelCase for multi-word hashtags.
+
+<post>
+${content}
+</post>
+
+Respond with only JSON: {"hashtags":[{"tag":"#Example","kind":"broad"},{"tag":"#AnotherOne","kind":"niche"}]}`;
+  const text = await complete(settings.aiProvider, {
+    system: systemPrompt(profile),
+    prompt,
+    model: settings.aiModel,
+    effort: "low",
+  });
+  const parsed = parseJson(
+    text,
+    z.object({
+      hashtags: z
+        .array(
+          z.union([
+            z.string().transform((tag) => ({ tag, kind: "niche" as const })),
+            z.object({ tag: z.string(), kind: z.string().optional() }),
+          ]),
+        )
+        .min(1),
+    }),
+  );
+  const existing = new Set(hashtagsIn(content).map((t) => t.toLowerCase()));
+  const out: HashtagSuggestion[] = [];
+  for (const h of parsed.hashtags) {
+    const tag = normalizeHashtag(h.tag);
+    if (!tag || existing.has(tag.toLowerCase())) continue;
+    existing.add(tag.toLowerCase());
+    out.push({ tag, kind: h.kind === "broad" ? "broad" : "niche" });
+  }
+  // Broad ones first.
+  return out.sort((a, b) => Number(b.kind === "broad") - Number(a.kind === "broad")).slice(0, 10);
 }
 
 const SLIDE_GUIDE = `Slide types (pick the one that fits each idea best; vary them):

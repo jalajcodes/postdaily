@@ -2,7 +2,7 @@
 // Firefox, some in-app browsers). On Cloudflare it uses Workers AI's Whisper (free daily
 // allowance: about 200 audio minutes); on the Mac server it uses OpenAI if OPENAI_API_KEY is set.
 import OpenAI from "openai";
-import { env } from "../runtime/env";
+import { resolveKey } from "../lib/keystore";
 import { AIError } from "./providers";
 
 export const WHISPER_MODEL = "@cf/openai/whisper-large-v3-turbo";
@@ -18,7 +18,7 @@ export function setAiBinding(ai: unknown) {
   workersAi = ai && typeof (ai as AiBinding).run === "function" ? (ai as AiBinding) : null;
 }
 
-export const transcriptionAvailable = () => Boolean(workersAi || env("OPENAI_API_KEY"));
+export const transcriptionAvailable = async () => Boolean(workersAi || (await resolveKey("openai")));
 
 function toBase64(bytes: Uint8Array) {
   let bin = "";
@@ -30,7 +30,7 @@ const EXT: Record<string, string> = { webm: "webm", ogg: "ogg", mp4: "m4a", m4a:
 
 export async function transcribe(audio: Uint8Array, contentType: string): Promise<string> {
   if (workersAi) return transcribeWithWorkersAi(workersAi, audio);
-  const key = env("OPENAI_API_KEY");
+  const key = (await resolveKey("openai"))?.key;
   if (key) {
     const sub = contentType.split(";")[0].split("/")[1] ?? "webm";
     const client = new OpenAI({ apiKey: key, maxRetries: 1, timeout: 60_000 });
@@ -44,7 +44,7 @@ export async function transcribe(audio: Uint8Array, contentType: string): Promis
       throw new AIError(`Transcription failed: ${(e as Error).message}`);
     }
   }
-  throw new AIError("Voice notes need the Cloudflare deployment (free speech-to-text) or OPENAI_API_KEY on this server.");
+  throw new AIError("Voice notes need the Cloudflare deployment (free speech-to-text) or an OpenAI API key (add one in Settings).");
 }
 
 /** After Turbo fails, skip it for a while (Cloudflare's Turbo hosts sometimes break for hours). */

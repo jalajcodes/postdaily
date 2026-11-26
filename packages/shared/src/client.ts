@@ -14,6 +14,9 @@ import type {
   PostLength,
   Profile,
   ProviderStatus,
+  ApiKeysStatus,
+  HashtagSuggestion,
+  KeyProvider,
   PushConfig,
   RewriteAction,
   Settings,
@@ -79,6 +82,12 @@ export function createClient(opts: ClientOptions) {
       providers: () => req<ProviderStatus[]>("GET", "/ai/providers"),
       /** Model list for providers that publish one (currently OpenRouter). */
       models: (provider: string) => req<ModelOption[]>("GET", `/ai/models?provider=${encodeURIComponent(provider)}`),
+      /** Your own API keys. Saving checks the key with the provider first; keys are never returned. */
+      keys: {
+        list: () => req<ApiKeysStatus>("GET", "/settings/keys"),
+        set: (provider: KeyProvider, key: string) => req<ApiKeysStatus>("PUT", `/settings/keys/${provider}`, { key }),
+        remove: (provider: KeyProvider) => req<ApiKeysStatus>("DELETE", `/settings/keys/${provider}`),
+      },
     },
     profile: {
       get: () => req<Profile>("GET", "/profile"),
@@ -100,6 +109,8 @@ export function createClient(opts: ClientOptions) {
       rewrite: (content: string, action: RewriteAction, instruction?: string) =>
         req<{ content: string }>("POST", "/ai/rewrite", { content, action, instruction }),
       hooks: (content: string) => req<{ hooks: string[] }>("POST", "/ai/hooks", { content }),
+      /** Popular hashtags that fit the post (AI-picked; not live trend data). */
+      hashtags: (content: string) => req<{ hashtags: HashtagSuggestion[] }>("POST", "/ai/hashtags", { content }),
       /** Whether the server can turn recorded voice notes into text. */
       transcribeAvailable: () => req<{ available: boolean }>("GET", "/ai/transcribe"),
       /** Recorded audio (webm/ogg/mp4) -> text. */

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { AI_PROVIDERS, POST_LENGTHS, REWRITE_ACTIONS } from "@postdaily/shared";
+import { AI_PROVIDERS, KEY_PROVIDERS, POST_LENGTHS, REWRITE_ACTIONS, type ApiKeysStatus, type KeyProvider } from "@postdaily/shared";
 import type { PlannedPost } from "@postdaily/shared";
 import { db, newId, type Statement } from "../db";
 import {
@@ -20,6 +20,7 @@ import {
   generateCarousel,
   generateCoverHeadlines,
   generateDrafts,
+  generateHashtags,
   generateHooks,
   generatePlannedPosts,
   PLAN_FORMATS,
@@ -32,6 +33,8 @@ import { computeStats, freeSlots, schedulePost } from "../lib/schedule";
 import { pushEnabled, saveSubscription, sendPush } from "../lib/push";
 import { env } from "../runtime/env";
 import type { AppEnv } from "../lib/auth";
+import { canStoreKeys, deleteKey, ENV_KEY, listKeys, saveKey } from "../lib/keystore";
+import { checkKeyFormat, InvalidKeyError, verifyKey, VerifyUnavailableError } from "../lib/verify-key";
 
 export const main = new Hono<AppEnv>();
 
@@ -65,6 +68,40 @@ main.put("/settings", async (c) => {
     .parse(await c.req.json());
   return c.json(await updateSettings(c.get("userId"), body));
 });
+// --- Your own API keys (write-only: never returned, only the last 4 characters) ---
+async function keysStatus(userId: string): Promise<ApiKeysStatus> {
+  return {
+    canStore: canStoreKeys(),
+    keys: await listKeys(userId),
+    server: Object.fromEntries(KEY_PROVIDERS.map((p) => [p, Boolean(env(ENV_KEY[p]))])) as Record<KeyProvider, boolean>,
+  };
+}
+const keyProvider = (p: string) => z.enum(KEY_PROVIDERS, { message: "Unknown provider" }).parse(p);
+
+main.get("/settings/keys", async (c) => c.json(await keysStatus(c.get("userId"))));
+main.put("/settings/keys/:provider", async (c) => {
+  const provider = keyProvider(c.req.param("provider"));
+  const { key: raw } = z.object({ key: z.string().max(400) }).parse(await c.req.json());
+  const key = raw.trim();
+  if (!canStoreKeys())
+    return c.json({ error: "This server can't store API keys yet: it needs the KEYS_SECRET secret. See Settings for the command." }, 503);
+  const bad = checkKeyFormat(provider, key);
+  if (bad) return c.json({ error: bad }, 400);
+  try {
+    await verifyKey(provider, key);
+  } catch (e) {
+    if (e instanceof InvalidKeyError) return c.json({ error: e.message }, 400);
+    if (e instanceof VerifyUnavailableError) return c.json({ error: e.message }, 502);
+    throw e;
+  }
+  await saveKey(c.get("userId"), provider, key);
+  return c.json(await keysStatus(c.get("userId")));
+});
+main.delete("/settings/keys/:provider", async (c) => {
+  await deleteKey(c.get("userId"), keyProvider(c.req.param("provider")));
+  return c.json(await keysStatus(c.get("userId")));
+});
+
 main.get("/ai/providers", async (c) => c.json(await providerStatuses()));
 main.get("/ai/models", async (c) =>
   c.json(c.req.query("provider") === "openrouter" ? await listOpenRouterModels() : []),
@@ -128,6 +165,11 @@ main.post("/ai/hooks", async (c) => {
   const { content } = z.object({ content: z.string().min(20, "Write a bit more first") }).parse(await c.req.json());
   return c.json({ hooks: await generateHooks(await getSettings(uid), await getVoiceProfile(uid), content) });
 });
+main.post("/ai/hashtags", async (c) => {
+  const uid = c.get("userId");
+  const { content } = z.object({ content: z.string().min(20, "Write a bit more first") }).parse(await c.req.json());
+  return c.json({ hashtags: await generateHashtags(await getSettings(uid), await getVoiceProfile(uid), content) });
+});
 main.post("/ai/carousel", async (c) => {
   const uid = c.get("userId");
   const { content } = z.object({ content: z.string().min(50, "Write the post first") }).parse(await c.req.json());
@@ -147,7 +189,7 @@ main.post("/ai/carousel/slide", async (c) => {
 });
 
 // --- Voice notes: recorded audio in, text out (for browsers without live dictation) ---
-main.get("/ai/transcribe", (c) => c.json({ available: transcriptionAvailable() }));
+main.get("/ai/transcribe", async (c) => c.json({ available: await transcriptionAvailable() }));
 main.post("/ai/transcribe", async (c) => {
   const type = c.req.header("Content-Type") ?? "";
   if (!type.startsWith("audio/")) return c.json({ error: "Send the recording as audio" }, 415);

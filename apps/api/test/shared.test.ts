@@ -1,7 +1,7 @@
 // Pure helpers from the shared package: hook replacement, LinkedIn fold, PDF writer.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildPdf, replaceHook, splitAtFold } from "@postdaily/shared";
+import { buildPdf, hashtagPlace, hashtagsIn, normalizeHashtag, replaceHook, splitAtFold, toggleHashtag } from "@postdaily/shared";
 import { toLittleText } from "../src/lib/linkedin";
 
 test("replaceHook swaps the first paragraph and keeps the rest", () => {
@@ -55,4 +55,33 @@ test("buildPdf writes a valid structure with correct xref offsets", () => {
   const lengths = [...text.matchAll(/\/DCTDecode \/Length (\d+)/g)].map((m) => Number(m[1]));
   assert.deepEqual(lengths, [14, 24]);
   assert.throws(() => buildPdf([]));
+});
+
+test("hashtags: normalize, find, and toggle on the hashtag line at the end", () => {
+  assert.equal(normalizeHashtag("remote work!"), "#RemoteWork");
+  assert.equal(normalizeHashtag("##AI"), "#AI");
+  assert.equal(normalizeHashtag("#  "), "");
+  assert.equal(normalizeHashtag("#Führung"), "#Führung");
+
+  assert.deepEqual(hashtagsIn("We use #AI daily.\nNot C# or a&#39;s url.com/#anchor\n\n#Leadership #ai"), ["#AI", "#Leadership", "#ai"]);
+
+  // Adding starts a hashtag line, then extends it.
+  let post = "Big lesson.\n\nShip small.  \n";
+  post = toggleHashtag(post, "#Leadership");
+  assert.equal(post, "Big lesson.\n\nShip small.\n\n#Leadership");
+  post = toggleHashtag(post, "#Startups");
+  assert.equal(post, "Big lesson.\n\nShip small.\n\n#Leadership #Startups");
+  assert.equal(hashtagPlace(post, "#startups"), "tagline", "case-insensitive");
+
+  // Removing takes it off the line; removing the last one drops the line.
+  post = toggleHashtag(post, "#leadership");
+  assert.equal(post, "Big lesson.\n\nShip small.\n\n#Startups");
+  post = toggleHashtag(post, "#Startups");
+  assert.equal(post, "Big lesson.\n\nShip small.");
+
+  // A hashtag inside the text is left alone.
+  const inline = "We bet on #AI this year.";
+  assert.equal(hashtagPlace(inline, "#AI"), "inline");
+  assert.equal(toggleHashtag(inline, "#AI"), inline);
+  assert.equal(toggleHashtag("", "#AI"), "#AI");
 });

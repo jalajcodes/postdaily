@@ -104,7 +104,7 @@ test("Mac server: uses OpenAI when a key is set, otherwise explains what's neede
   setEnv({ RUNTIME: "node" });
   const none = await send(audio);
   assert.equal(none.status, 502);
-  assert.match(none.body.error, /Cloudflare deployment .* or OPENAI_API_KEY/);
+  assert.match(none.body.error, /Cloudflare deployment .* or an OpenAI API key/);
 
   setEnv({ RUNTIME: "node", OPENAI_API_KEY: "sk-test" });
   t.route((c) => (c.url.endsWith("/audio/transcriptions") ? json({ text: "hello from openai" }) : undefined));

@@ -1,5 +1,6 @@
 import { createMiddleware } from "hono/factory";
 import { db } from "../db";
+import { withUser } from "./user-context";
 
 export type AppEnv = { Variables: { userId: string } };
 
@@ -39,5 +40,6 @@ export const requireAuth = createMiddleware<AppEnv>(async (c, next) => {
   const userId = await userIdForToken(bearer(c.req.header("Authorization")));
   if (!userId) return c.json({ error: "Not signed in" }, 401);
   c.set("userId", userId);
-  await next();
+  // Lets the AI providers find this user's own API keys.
+  await withUser(userId, next);
 });

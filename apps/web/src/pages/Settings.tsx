@@ -17,6 +17,7 @@ import { prepareLogo } from "../lib/carousel";
 import { applyFuture } from "../future/theme";
 import { api } from "../lib/api";
 import { currentSubscription, disablePush, enablePush, isInstalled, isIos, pushSupported } from "../lib/push";
+import { ApiKeysSection } from "../components/ApiKeysSection";
 import { Button, Card, ErrorText, Label, LinkedinIcon, PageHeader, SaveBar, Spinner, inputBaseCls, inputCls } from "../components/ui";
 
 const TIMEZONES: string[] = (Intl as any).supportedValuesOf?.("timeZone") ?? ["UTC"];
@@ -141,6 +142,7 @@ export function SettingsPage() {
             <input type="checkbox" checked={s.dailyIdeas} onChange={(e) => set("dailyIdeas", e.target.checked)} />
             Generate 5 fresh ideas every morning
           </label>
+          <ApiKeysSection />
         </Card>
 
         <div className="space-y-4">

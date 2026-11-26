@@ -392,3 +392,28 @@ export const MAX_SLIDE_IMAGES = 2;
 export const MAX_CAROUSEL_SLIDES = 12;
 /** Minutes after publishing to send the "reply to comments" nudge. */
 export const NUDGE_AFTER_MIN = 40;
+
+/** Providers whose API key can be added from Settings. */
+export const KEY_PROVIDERS = ["openrouter", "anthropic", "openai"] as const;
+export type KeyProvider = (typeof KEY_PROVIDERS)[number];
+
+/** A saved key. The key itself is never sent back, only its last 4 characters. */
+export interface StoredKey {
+  provider: KeyProvider;
+  last4: string;
+  addedAt: string;
+}
+
+export interface ApiKeysStatus {
+  /** False until the server has a KEYS_SECRET to encrypt keys with. */
+  canStore: boolean;
+  keys: StoredKey[];
+  /** Whether the server itself has a key for each provider (used when you haven't added one). */
+  server: Record<KeyProvider, boolean>;
+}
+
+/** A suggested hashtag: "broad" = large, widely followed; "niche" = specific to the post. */
+export interface HashtagSuggestion {
+  tag: string;
+  kind: "broad" | "niche";
+}

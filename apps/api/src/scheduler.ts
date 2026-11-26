@@ -11,6 +11,7 @@ import { addNotification, getProfile, getSettings, getVoiceProfile, updateProfil
 import { analyzeStyle } from "./ai/writer";
 import { computeStats, publishNow } from "./lib/schedule";
 import { createIdeasForToday } from "./routes/ideas";
+import { withUser } from "./lib/user-context";
 
 /** Optional OS-level notification (the Mac server plugs in macOS notifications). */
 let desktopNotify: ((title: string, body: string) => void) | null = null;
@@ -62,36 +63,39 @@ async function engagementNudges() {
 
 async function dailyJobs() {
   const users = await db.all<{ id: string }>("SELECT id FROM users");
-  for (const { id } of users) {
-    const s = await getSettings(id);
-    const row = (await db.get("SELECT last_reminder_date, last_ideas_date, linkedin_warning FROM settings WHERE user_id = ?", id))!;
-    const now = DateTime.now().setZone(s.timezone);
-    const today = now.toISODate()!;
+  // Each user's jobs run as that user, so AI calls use their own API keys.
+  for (const { id } of users) await withUser(id, () => dailyJobsFor(id));
+}
 
-    // Morning ideas (from 07:00, once a day, only if a profile exists)
-    if (s.dailyIdeas && row.last_ideas_date !== today && now.hour >= 7) {
-      await db.run("UPDATE settings SET last_ideas_date = ? WHERE user_id = ?", today, id);
-      const profile = await getProfile(id);
-      if (profile.niche || profile.samplePosts || profile.topics.length) {
-        await createIdeasForToday(id).catch((e) => console.warn(`[ideas] ${id}: ${(e as Error).message}`));
-      }
+async function dailyJobsFor(id: string) {
+  const s = await getSettings(id);
+  const row = (await db.get("SELECT last_reminder_date, last_ideas_date, linkedin_warning FROM settings WHERE user_id = ?", id))!;
+  const now = DateTime.now().setZone(s.timezone);
+  const today = now.toISODate()!;
+
+  // Morning ideas (from 07:00, once a day, only if a profile exists)
+  if (s.dailyIdeas && row.last_ideas_date !== today && now.hour >= 7) {
+    await db.run("UPDATE settings SET last_ideas_date = ? WHERE user_id = ?", today, id);
+    const profile = await getProfile(id);
+    if (profile.niche || profile.samplePosts || profile.topics.length) {
+      await createIdeasForToday(id).catch((e) => console.warn(`[ideas] ${id}: ${(e as Error).message}`));
     }
+  }
 
-    await linkedinExpiryWarning(id, row.linkedin_warning);
-    await refreshStyleIfDue(id);
+  await linkedinExpiryWarning(id, row.linkedin_warning);
+  await refreshStyleIfDue(id);
 
-    // Reminder
-    if (s.reminderEnabled && row.last_reminder_date !== today && now.toFormat("HH:mm") >= s.reminderTime) {
-      await db.run("UPDATE settings SET last_reminder_date = ? WHERE user_id = ?", today, id);
-      const stats = await computeStats(id);
-      if (!stats.postedToday && !stats.queuedToday) {
-        const body =
-          stats.dailyStreak > 0
-            ? `You're on a ${stats.dailyStreak}-day streak. Write today's post to keep it going.`
-            : "You haven't posted today. Got 10 minutes for one idea?";
-        await addNotification(id, "Time to post on LinkedIn", body);
-        desktopNotify?.("PostDaily", body);
-      }
+  // Reminder
+  if (s.reminderEnabled && row.last_reminder_date !== today && now.toFormat("HH:mm") >= s.reminderTime) {
+    await db.run("UPDATE settings SET last_reminder_date = ? WHERE user_id = ?", today, id);
+    const stats = await computeStats(id);
+    if (!stats.postedToday && !stats.queuedToday) {
+      const body =
+        stats.dailyStreak > 0
+          ? `You're on a ${stats.dailyStreak}-day streak. Write today's post to keep it going.`
+          : "You haven't posted today. Got 10 minutes for one idea?";
+      await addNotification(id, "Time to post on LinkedIn", body);
+      desktopNotify?.("PostDaily", body);
     }
   }
 }
