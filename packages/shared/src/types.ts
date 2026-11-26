@@ -410,6 +410,8 @@ export interface ApiKeysStatus {
   keys: StoredKey[];
   /** Whether the server itself has a key for each provider (used when you haven't added one). */
   server: Record<KeyProvider, boolean>;
+  /** Your daily allowance on the server's keys; null when you have no limit (the owner). */
+  allowance: AiAllowance | null;
 }
 
 /** A suggested hashtag: "broad" = large, widely followed; "niche" = specific to the post. */
@@ -417,3 +419,29 @@ export interface HashtagSuggestion {
   tag: string;
   kind: "broad" | "niche";
 }
+
+/** Today's AI requests on the server's shared keys (accounts other than the owner). */
+export interface AiAllowance {
+  text: { used: number; limit: number };
+  image: { used: number; limit: number };
+}
+
+export interface HashtagSet {
+  id: string;
+  name: string;
+  tags: string[];
+}
+
+/** Hashtags you've used in your posts, most used first, plus your saved sets. */
+export interface MyHashtags {
+  frequent: { tag: string; count: number }[];
+  sets: HashtagSet[];
+}
+
+export const IMAGE_STYLES = {
+  photo: "Photo",
+  illustration: "Illustration",
+  "3d": "3D",
+  minimal: "Minimal",
+} as const;
+export type ImageStyle = keyof typeof IMAGE_STYLES;

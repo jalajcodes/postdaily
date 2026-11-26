@@ -7,7 +7,7 @@ import { auth } from "./routes/auth";
 import { main } from "./routes/main";
 import { ideas } from "./routes/ideas";
 import { posts } from "./routes/posts";
-import { AIError } from "./ai/providers";
+import { AIError, AILimitError } from "./ai/providers";
 import { env } from "./runtime/env";
 import { db } from "./db";
 
@@ -28,6 +28,7 @@ export function createApp() {
 
   app.onError((err, c) => {
     if (err instanceof ZodError) return c.json({ error: err.issues.map((i) => i.message).join("; ") }, 400);
+    if (err instanceof AILimitError) return c.json({ error: err.message }, 429);
     if (err instanceof AIError) return c.json({ error: err.message }, 502);
     console.error(err);
     return c.json({ error: err.message || "Something went wrong" }, 500);

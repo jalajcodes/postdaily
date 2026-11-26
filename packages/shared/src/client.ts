@@ -16,6 +16,8 @@ import type {
   ProviderStatus,
   ApiKeysStatus,
   HashtagSuggestion,
+  ImageStyle,
+  MyHashtags,
   KeyProvider,
   PushConfig,
   RewriteAction,
@@ -95,6 +97,12 @@ export function createClient(opts: ClientOptions) {
       analyze: () => req<Profile>("POST", "/profile/analyze"),
       clearLearned: () => req<Profile>("DELETE", "/profile/learned"),
     },
+    hashtags: {
+      /** The hashtags you use most (from published and queued posts) and your saved sets. */
+      mine: () => req<MyHashtags>("GET", "/hashtags"),
+      saveSet: (name: string, tags: string[]) => req<MyHashtags>("POST", "/hashtags/sets", { name, tags }),
+      removeSet: (id: string) => req<MyHashtags>("DELETE", `/hashtags/sets/${id}`),
+    },
     ideas: {
       list: (status?: IdeaStatus) => req<Idea[]>("GET", `/ideas${status ? `?status=${status}` : ""}`),
       create: (text: string) => req<Idea>("POST", "/ideas", { text }),
@@ -109,6 +117,10 @@ export function createClient(opts: ClientOptions) {
       rewrite: (content: string, action: RewriteAction, instruction?: string) =>
         req<{ content: string }>("POST", "/ai/rewrite", { content, action, instruction }),
       hooks: (content: string) => req<{ hooks: string[] }>("POST", "/ai/hooks", { content }),
+      /** Whether this server can generate images (Cloudflare deployment). */
+      imageAvailable: () => req<{ available: boolean }>("GET", "/ai/image"),
+      /** An AI image for the post. Without a prompt, the AI describes one from the post first. */
+      image: (p: { content?: string; prompt?: string; style: ImageStyle }) => req<{ dataUrl: string; prompt: string }>("POST", "/ai/image", p),
       /** Popular hashtags that fit the post (AI-picked; not live trend data). */
       hashtags: (content: string) => req<{ hashtags: HashtagSuggestion[] }>("POST", "/ai/hashtags", { content }),
       /** Whether the server can turn recorded voice notes into text. */

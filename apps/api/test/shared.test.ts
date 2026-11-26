@@ -1,7 +1,7 @@
 // Pure helpers from the shared package: hook replacement, LinkedIn fold, PDF writer.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildPdf, hashtagPlace, hashtagsIn, normalizeHashtag, replaceHook, splitAtFold, toggleHashtag } from "@postdaily/shared";
+import { addHashtags, buildPdf, hashtagPlace, hashtagsIn, normalizeHashtag, replaceHook, splitAtFold, toggleHashtag } from "@postdaily/shared";
 import { toLittleText } from "../src/lib/linkedin";
 
 test("replaceHook swaps the first paragraph and keeps the rest", () => {
@@ -84,4 +84,9 @@ test("hashtags: normalize, find, and toggle on the hashtag line at the end", () 
   assert.equal(hashtagPlace(inline, "#AI"), "inline");
   assert.equal(toggleHashtag(inline, "#AI"), inline);
   assert.equal(toggleHashtag("", "#AI"), "#AI");
+});
+
+test("addHashtags adds only the missing ones from a set", () => {
+  assert.equal(addHashtags("Post #AI here.\n\n#Leadership", ["#leadership", "#AI", "#Startups", "#Growth"]), "Post #AI here.\n\n#Leadership #Startups #Growth");
+  assert.equal(addHashtags("Post", []), "Post");
 });

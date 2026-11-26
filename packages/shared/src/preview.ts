@@ -94,3 +94,8 @@ export function toggleHashtag(content: string, tag: string): string {
   const body = content.trimEnd();
   return body ? `${body}\n\n${tag}` : tag;
 }
+
+/** Add every hashtag in `tags` that the post doesn't have yet. */
+export function addHashtags(content: string, tags: string[]): string {
+  return tags.reduce((c, t) => (hashtagPlace(c, t) ? c : toggleHashtag(c, t)), content);
+}

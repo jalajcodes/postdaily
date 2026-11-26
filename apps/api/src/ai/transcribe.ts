@@ -18,6 +18,9 @@ export function setAiBinding(ai: unknown) {
   workersAi = ai && typeof (ai as AiBinding).run === "function" ? (ai as AiBinding) : null;
 }
 
+/** The Workers AI binding (Cloudflare only), shared with image generation. */
+export const workersAiBinding = () => workersAi;
+
 export const transcriptionAvailable = async () => Boolean(workersAi || (await resolveKey("openai")));
 
 function toBase64(bytes: Uint8Array) {

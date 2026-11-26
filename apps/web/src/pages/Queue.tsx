@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Plus, X } from "lucide-react";
+import { CalendarDays, Check, List, Plus, X } from "lucide-react";
+import { QueueCalendar } from "../components/QueueCalendar";
 import { POSTING_PRESETS, type Post, type PostingPreset, type Slot } from "@postdaily/shared";
 import { DAY_NAMES, api, formatWhen } from "../lib/api";
 import { Button, Card, ErrorText, PageHeader, Spinner, inputBaseCls, inputCls } from "../components/ui";
@@ -15,6 +16,21 @@ export function QueuePage() {
   const published = useQuery({ queryKey: ["posts", "published"], queryFn: () => api.posts.list("published") });
   const tz = settings.data?.timezone;
   const [shown, setShown] = useState(5);
+  const [view, setView] = useState<"list" | "calendar">(() => {
+    try {
+      return localStorage.getItem("postdaily.queueView") === "calendar" ? "calendar" : "list";
+    } catch {
+      return "list";
+    }
+  });
+  const pickView = (v: "list" | "calendar") => {
+    setView(v);
+    try {
+      localStorage.setItem("postdaily.queueView", v);
+    } catch {
+      /* private mode */
+    }
+  };
 
   const unschedule = useMutation({
     mutationFn: (id: string) => api.posts.unschedule(id),
@@ -33,7 +49,27 @@ export function QueuePage() {
       <PageHeader title="Queue" subtitle={tz ? `Times are in ${tz}.` : undefined} />
       <SlotsEditor />
 
-      <Section title="Scheduled" empty="Nothing scheduled. Open a draft and add it to the queue.">
+      <div className="mt-6 inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-sm" role="group" aria-label="Queue view">
+        {([
+          ["list", <List key="l" className="size-4" />, "List"],
+          ["calendar", <CalendarDays key="c" className="size-4" />, "Calendar"],
+        ] as const).map(([v, icon, label]) => (
+          <button
+            key={v}
+            aria-pressed={view === v}
+            onClick={() => pickView(v)}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 ${view === v ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+          >
+            {icon} {label}
+          </button>
+        ))}
+      </div>
+
+      {view === "calendar" && tz && (
+        <QueueCalendar queued={queued.data ?? []} published={published.data ?? []} failed={failed.data ?? []} tz={tz} />
+      )}
+
+      {view === "list" && <Section title="Scheduled" empty="Nothing scheduled. Open a draft and add it to the queue.">
         {queued.isLoading ? <Spinner /> : queued.data?.map((p) => (
           <PostRow
             key={p.id}
@@ -45,7 +81,7 @@ export function QueuePage() {
             </Button>
           </PostRow>
         ))}
-      </Section>
+      </Section>}
 
       <ErrorText error={retry.error} />
       {!!failed.data?.length && (
@@ -71,15 +107,19 @@ export function QueuePage() {
         </Link>
       )}
 
-      <Section title="Published" empty="Nothing published yet.">
-        {published.data?.slice(0, shown).map((p) => (
-          <PostRow key={p.id} post={p} meta={formatWhen(p.publishedAt!, tz)} metaClass="text-green-700" />
-        ))}
-      </Section>
-      {(published.data?.length ?? 0) > shown && (
-        <Button variant="secondary" className="mt-3 w-full sm:w-auto" onClick={() => setShown(shown + 10)}>
-          Show more ({published.data!.length - shown} older)
-        </Button>
+      {view === "list" && (
+        <>
+          <Section title="Published" empty="Nothing published yet.">
+            {published.data?.slice(0, shown).map((p) => (
+              <PostRow key={p.id} post={p} meta={formatWhen(p.publishedAt!, tz)} metaClass="text-green-700" />
+            ))}
+          </Section>
+          {(published.data?.length ?? 0) > shown && (
+            <Button variant="secondary" className="mt-3 w-full sm:w-auto" onClick={() => setShown(shown + 10)}>
+              Show more ({published.data!.length - shown} older)
+            </Button>
+          )}
+        </>
       )}
     </>
   );

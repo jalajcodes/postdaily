@@ -337,6 +337,28 @@ Respond with only JSON: {"hashtags":[{"tag":"#Example","kind":"broad"},{"tag":"#
   return out.sort((a, b) => Number(b.kind === "broad") - Number(a.kind === "broad")).slice(0, 10);
 }
 
+/** A short description of an image to go with the post, for the image model. */
+export async function writeImagePrompt(settings: Settings, content: string, style: string): Promise<string> {
+  const prompt = `Describe ONE image to go with this LinkedIn post (style: ${style}). It should catch the eye in a feed and match the post's message through a clear visual idea or metaphor.
+
+Rules: under 60 words; describe the scene, subject, composition and colors; no text, words, letters, charts with labels, logos or real people's names in the image.
+
+<post>
+${content}
+</post>
+
+Respond with only the description.`;
+  const text = await complete(settings.aiProvider, {
+    system: "You write short, vivid prompts for an image generation model.",
+    prompt,
+    model: settings.aiModel,
+    effort: "low",
+  });
+  const out = stripMarkdown(text).replace(/^["']|["']$/g, "").trim();
+  if (!out) throw new AIError("The AI didn't describe an image. Try again.");
+  return out.slice(0, 800);
+}
+
 const SLIDE_GUIDE = `Slide types (pick the one that fits each idea best; vary them):
 - "cover": first slide. heading = a bold, specific headline (max 8 words) that makes people swipe; body = optional one-line subtitle.
 - "text": heading (max 8 words) + body (max 30 words).

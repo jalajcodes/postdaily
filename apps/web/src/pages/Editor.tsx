@@ -3,8 +3,6 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CalendarPlus,
-  Check,
-  Hash,
   Clock,
   GalleryHorizontal,
   ImagePlus,
@@ -24,10 +22,7 @@ import {
   DEFAULT_CAROUSEL_BRAND,
   LINKEDIN_MAX_CHARS,
   REWRITE_ACTIONS,
-  hashtagPlace,
-  hashtagsIn,
   replaceHook,
-  toggleHashtag,
   type Carousel,
   type CarouselDesign,
   type RewriteAction,
@@ -40,6 +35,8 @@ import { useCarouselAssets } from "../lib/useCarousel";
 import { celebrate } from "../future/celebrate";
 import { ThinkingNote } from "../components/Thinking";
 import { CarouselEditor } from "../components/CarouselEditor";
+import { HashtagsBox } from "../components/HashtagsBox";
+import { AiImagePanel, useAiImageAvailable } from "../components/AiImagePanel";
 import { Button, Card, ErrorText, Spinner, inputCls } from "../components/ui";
 
 const QUICK: RewriteAction[] = ["shorter", "longer", "punchier", "casual", "professional", "add_cta", "fix_formatting"];
@@ -161,9 +158,11 @@ export function EditorPage() {
   });
   const saveAlt = useMutation({ mutationFn: (alt: string) => api.posts.update(id!, { imageAlt: alt }), onSuccess: refresh });
   const setImage = useMutation({
-    mutationFn: async (dataUrl: string) => api.posts.setImage(id!, dataUrl, imageAlt || undefined),
-    onSuccess: (_p, dataUrl) => {
-      qc.setQueryData(["post-image", id], { dataUrl });
+    mutationFn: async (img: string | { dataUrl: string; alt: string }) =>
+      typeof img === "string" ? api.posts.setImage(id!, img, imageAlt || undefined) : api.posts.setImage(id!, img.dataUrl, img.alt),
+    onSuccess: (_p, img) => {
+      qc.setQueryData(["post-image", id], { dataUrl: typeof img === "string" ? img : img.dataUrl });
+      if (typeof img !== "string") setImageAlt(img.alt);
       refresh();
     },
   });
@@ -176,12 +175,11 @@ export function EditorPage() {
     },
   });
   const [imageError, setImageError] = useState<unknown>(null);
+  const aiImageAvailable = useAiImageAvailable();
+  const [aiImageOpen, setAiImageOpen] = useState(false);
 
   // Hook variants: 3 alternative openings; picking one replaces the first paragraph.
   const hooks = useMutation({ mutationFn: () => api.ai.hooks(content) });
-  // Hashtag suggestions: tap one to add it to (or take it off) the hashtag line at the end.
-  const hashtags = useMutation({ mutationFn: () => api.ai.hashtags(content) });
-  const tagCount = hashtagsIn(content).length;
 
   // Carousel: AI outline -> edit slides -> PDF built in the browser -> attached to the post.
   const [carouselDraft, setCarouselDraft] = useState<(Carousel & { design?: CarouselDesign | null }) | null>(null);
@@ -340,62 +338,7 @@ export function EditorPage() {
               )}
               <ErrorText error={hooks.error} />
             </div>
-            <div className="mb-3 rounded-lg bg-slate-50 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-sm">
-                  <b>Hashtags</b>{" "}
-                  <span className={tagCount > 5 ? "text-amber-700" : "text-slate-500"}>
-                    · {tagCount} in post{tagCount > 5 ? ", 3 to 5 usually works best" : ""}
-                  </span>
-                </span>
-                <Button
-                  variant="secondary"
-                  className="py-1.5 text-xs"
-                  disabled={busy || content.trim().length < 20}
-                  loading={hashtags.isPending}
-                  onClick={() => hashtags.mutate()}
-                >
-                  <Hash className="size-3.5" /> {hashtags.data ? "Suggest again" : "Suggest popular hashtags"}
-                </Button>
-              </div>
-              {hashtags.data && (
-                <>
-                  {(["broad", "niche"] as const).map((kind) => {
-                    const list = hashtags.data.hashtags.filter((h) => h.kind === kind);
-                    if (!list.length) return null;
-                    return (
-                      <div key={kind} className="mt-2">
-                        <div className="mb-1 text-xs text-slate-500">{kind === "broad" ? "Widely followed" : "Specific to this post"}</div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {list.map(({ tag }) => {
-                            const place = hashtagPlace(content, tag);
-                            return (
-                              <button
-                                key={tag}
-                                aria-pressed={!!place}
-                                disabled={place === "inline"}
-                                title={place === "inline" ? "Already in your text" : place ? "Remove from the post" : "Add to the end of the post"}
-                                onClick={() => edit(toggleHashtag(content, tag))}
-                                className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs ${
-                                  place
-                                    ? "border-brand-500 bg-brand-50 text-brand-700"
-                                    : "border-slate-200 bg-white text-slate-700 hover:border-brand-500"
-                                } disabled:cursor-default`}
-                              >
-                                {place && <Check className="size-3" />}
-                                {tag}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <p className="mt-2 text-xs text-slate-500">Picked by AI from hashtags popular on LinkedIn. LinkedIn doesn't publish live trends, so treat these as a starting point.</p>
-                </>
-              )}
-              <ErrorText error={hashtags.error} />
-            </div>
+            <HashtagsBox content={content} edit={edit} busy={busy} />
             <div className="flex flex-wrap gap-2">
               {QUICK.map((a) => (
                 <Button
@@ -548,6 +491,11 @@ export function EditorPage() {
                 >
                   <Quote className="size-4" /> Make a quote card from the hook
                 </Button>
+                {aiImageAvailable && (
+                  <Button variant="secondary" aria-expanded={aiImageOpen} onClick={() => setAiImageOpen((o) => !o)}>
+                    <Sparkles className="size-4" /> AI image
+                  </Button>
+                )}
                 <Button
                   variant="secondary"
                   disabled={content.trim().length < 50}
@@ -558,6 +506,14 @@ export function EditorPage() {
                   <GalleryHorizontal className="size-4" /> Make a carousel
                 </Button>
               </div>
+            )}
+            {aiImageOpen && !p.hasImage && (
+              <AiImagePanel
+                content={content}
+                saving={setImage.isPending}
+                onClose={() => setAiImageOpen(false)}
+                onUse={(dataUrl, alt) => setImage.mutate({ dataUrl, alt }, { onSuccess: () => setAiImageOpen(false) })}
+              />
             )}
             {outline.isPending && <ThinkingNote label="Outlining slides from your post…" />}
             <div className="mt-2">

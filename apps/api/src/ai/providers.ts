@@ -6,6 +6,8 @@ import OpenAI from "openai";
 import { AI_PROVIDER_LABELS, type AIProviderId, type ModelOption, type ProviderStatus } from "@postdaily/shared";
 import { env } from "../runtime/env";
 import { resolveKey } from "../lib/keystore";
+import { dailyLimit, takeAllowance } from "../lib/usage";
+import { currentUserId } from "../lib/user-context";
 
 export interface CompleteArgs {
   system: string;
@@ -16,6 +18,13 @@ export interface CompleteArgs {
 }
 
 export class AIError extends Error {}
+/** Today's allowance on the server's shared key is used up. */
+export class AILimitError extends AIError {}
+
+export const limitMessage = (kind: "text" | "image", limit: number) =>
+  kind === "text"
+    ? `You've used today's ${limit} AI requests on the shared key. Add your own key in Settings → AI writer (OpenRouter keys are free), or try again tomorrow.`
+    : `You've made today's ${limit} images. Try again tomorrow.`;
 
 export type Provider = (args: CompleteArgs) => Promise<string>;
 type StatusCheck = () => Promise<{ available: boolean; note: string }>;
@@ -232,8 +241,15 @@ export function registerProvider(id: AIProviderId, provider: Provider, status: S
   statusChecks[id] = status;
 }
 
-export function complete(provider: AIProviderId, args: CompleteArgs) {
+const KEYED = new Set<AIProviderId>(["anthropic", "openrouter", "openai"]);
+
+export async function complete(provider: AIProviderId, args: CompleteArgs) {
   const fn = providers[provider];
+  // Requests on the server's own key count toward the account's daily allowance.
+  const userId = currentUserId();
+  if (fn && userId && KEYED.has(provider) && (await resolveKey(provider as "openrouter"))?.source === "server") {
+    if (!(await takeAllowance(userId, "text"))) throw new AILimitError(limitMessage("text", dailyLimit("text")));
+  }
   if (!fn) {
     throw new AIError(
       provider === "claude-code"

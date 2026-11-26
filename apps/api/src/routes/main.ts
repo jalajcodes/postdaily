@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { AI_PROVIDERS, KEY_PROVIDERS, POST_LENGTHS, REWRITE_ACTIONS, type ApiKeysStatus, type KeyProvider } from "@postdaily/shared";
+import { AI_PROVIDERS, IMAGE_STYLES, KEY_PROVIDERS, POST_LENGTHS, REWRITE_ACTIONS, hashtagsIn, normalizeHashtag, type ApiKeysStatus, type HashtagSet, type KeyProvider, type MyHashtags } from "@postdaily/shared";
 import type { PlannedPost } from "@postdaily/shared";
 import { db, newId, type Statement } from "../db";
 import {
@@ -21,6 +21,7 @@ import {
   generateCoverHeadlines,
   generateDrafts,
   generateHashtags,
+  writeImagePrompt,
   generateHooks,
   generatePlannedPosts,
   PLAN_FORMATS,
@@ -34,6 +35,9 @@ import { pushEnabled, saveSubscription, sendPush } from "../lib/push";
 import { env } from "../runtime/env";
 import type { AppEnv } from "../lib/auth";
 import { canStoreKeys, deleteKey, ENV_KEY, listKeys, saveKey } from "../lib/keystore";
+import { allowance } from "../lib/usage";
+import { generateImage, imageAvailable } from "../ai/image";
+import { AILimitError, limitMessage } from "../ai/providers";
 import { checkKeyFormat, InvalidKeyError, verifyKey, VerifyUnavailableError } from "../lib/verify-key";
 
 export const main = new Hono<AppEnv>();
@@ -74,6 +78,7 @@ async function keysStatus(userId: string): Promise<ApiKeysStatus> {
     canStore: canStoreKeys(),
     keys: await listKeys(userId),
     server: Object.fromEntries(KEY_PROVIDERS.map((p) => [p, Boolean(env(ENV_KEY[p]))])) as Record<KeyProvider, boolean>,
+    allowance: await allowance(userId),
   };
 }
 const keyProvider = (p: string) => z.enum(KEY_PROVIDERS, { message: "Unknown provider" }).parse(p);
@@ -170,6 +175,73 @@ main.post("/ai/hashtags", async (c) => {
   const { content } = z.object({ content: z.string().min(20, "Write a bit more first") }).parse(await c.req.json());
   return c.json({ hashtags: await generateHashtags(await getSettings(uid), await getVoiceProfile(uid), content) });
 });
+// --- Your hashtags: the ones you use most, and saved sets ---
+const MAX_SETS = 20;
+async function myHashtags(userId: string): Promise<MyHashtags> {
+  const posts = await db.all<{ content: string }>(
+    "SELECT content FROM posts WHERE user_id = ? AND status IN ('published', 'queued') ORDER BY updated_at DESC LIMIT 200",
+    userId,
+  );
+  // Count case-insensitively; show the spelling you used most.
+  const counts = new Map<string, { count: number; spellings: Map<string, number> }>();
+  for (const { content } of posts)
+    for (const tag of new Set(hashtagsIn(content))) {
+      const e = counts.get(tag.toLowerCase()) ?? { count: 0, spellings: new Map() };
+      e.count++;
+      e.spellings.set(tag, (e.spellings.get(tag) ?? 0) + 1);
+      counts.set(tag.toLowerCase(), e);
+    }
+  const frequent = [...counts.values()]
+    .map((e) => ({ tag: [...e.spellings].sort((a, b) => b[1] - a[1])[0][0], count: e.count }))
+    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
+    .slice(0, 12);
+  const sets = await db.all<{ id: string; name: string; tags: string }>(
+    "SELECT id, name, tags FROM hashtag_sets WHERE user_id = ? ORDER BY created_at",
+    userId,
+  );
+  return { frequent, sets: sets.map((r): HashtagSet => ({ id: r.id, name: r.name, tags: JSON.parse(r.tags) })) };
+}
+
+main.get("/hashtags", async (c) => c.json(await myHashtags(c.get("userId"))));
+main.post("/hashtags/sets", async (c) => {
+  const uid = c.get("userId");
+  const body = z
+    .object({ name: z.string().trim().min(1, "Give the set a name").max(40), tags: z.array(z.string().max(80)).max(30) })
+    .parse(await c.req.json());
+  const tags = [...new Map(body.tags.map(normalizeHashtag).filter(Boolean).map((t) => [t.toLowerCase(), t])).values()];
+  if (!tags.length) return c.json({ error: "Add at least one hashtag to the post first" }, 400);
+  if (tags.length > 15) return c.json({ error: "A set can have at most 15 hashtags" }, 400);
+  const n = await db.get<{ n: number }>("SELECT count(*) AS n FROM hashtag_sets WHERE user_id = ?", uid);
+  if ((n?.n ?? 0) >= MAX_SETS) return c.json({ error: `You can save up to ${MAX_SETS} sets. Delete one first.` }, 400);
+  await db.run("INSERT INTO hashtag_sets (id, user_id, name, tags) VALUES (?, ?, ?, ?)", newId(), uid, body.name, JSON.stringify(tags));
+  return c.json(await myHashtags(uid));
+});
+main.delete("/hashtags/sets/:id", async (c) => {
+  const uid = c.get("userId");
+  await db.run("DELETE FROM hashtag_sets WHERE id = ? AND user_id = ?", c.req.param("id"), uid);
+  return c.json(await myHashtags(uid));
+});
+
+// --- AI images ---
+main.get("/ai/image", (c) => c.json({ available: imageAvailable() }));
+main.post("/ai/image", async (c) => {
+  const uid = c.get("userId");
+  const { content, prompt, style } = z
+    .object({
+      content: z.string().max(5000).default(""),
+      prompt: z.string().trim().max(800).optional(),
+      style: z.enum(Object.keys(IMAGE_STYLES) as [keyof typeof IMAGE_STYLES]).default("photo"),
+    })
+    .parse(await c.req.json());
+  if (!imageAvailable()) return c.json({ error: "Image generation needs the Cloudflare deployment (it uses Workers AI)." }, 400);
+  if (!prompt && content.trim().length < 20) return c.json({ error: "Write the post first, or describe the image you want." }, 400);
+  // Don't spend a writing request on the description if no images are left today.
+  const left = await allowance(uid);
+  if (left && left.image.used >= left.image.limit) throw new AILimitError(limitMessage("image", left.image.limit));
+  const description = prompt || (await writeImagePrompt(await getSettings(uid), content, IMAGE_STYLES[style]));
+  return c.json({ dataUrl: await generateImage(uid, description, style), prompt: description });
+});
+
 main.post("/ai/carousel", async (c) => {
   const uid = c.get("userId");
   const { content } = z.object({ content: z.string().min(50, "Write the post first") }).parse(await c.req.json());
