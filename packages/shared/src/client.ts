@@ -16,6 +16,7 @@ import type {
   ProviderStatus,
   ApiKeysStatus,
   HashtagSuggestion,
+  ImageModel,
   ImageStyle,
   MyHashtags,
   KeyProvider,
@@ -120,7 +121,7 @@ export function createClient(opts: ClientOptions) {
       /** Whether this server can generate images (Cloudflare deployment). */
       imageAvailable: () => req<{ available: boolean }>("GET", "/ai/image"),
       /** An AI image for the post. Without a prompt, the AI describes one from the post first. */
-      image: (p: { content?: string; prompt?: string; style: ImageStyle }) => req<{ dataUrl: string; prompt: string }>("POST", "/ai/image", p),
+      image: (p: { content?: string; prompt?: string; style: ImageStyle; model?: ImageModel }) => req<{ dataUrl: string; prompt: string }>("POST", "/ai/image", p),
       /** Popular hashtags that fit the post (AI-picked; not live trend data). */
       hashtags: (content: string) => req<{ hashtags: HashtagSuggestion[] }>("POST", "/ai/hashtags", { content }),
       /** Whether the server can turn recorded voice notes into text. */

@@ -6,7 +6,7 @@ import { createApp } from "../src/app";
 import { createSession } from "../src/lib/auth";
 import { db } from "../src/db";
 import { setAiBinding } from "../src/ai/transcribe";
-import { IMAGE_MODEL } from "../src/ai/image";
+import { IMAGE_MODEL_IDS } from "../src/ai/image";
 import { aiReply, createUser, json, setup } from "./helpers";
 
 let t: Awaited<ReturnType<typeof setup>>;
@@ -14,7 +14,16 @@ const app = createApp();
 const tokens: Record<string, string> = {};
 let aiText: unknown = "Shorter post";
 const imageRuns: { model: string; input: any }[] = [];
-let imageResult: () => Promise<unknown> = async () => ({ image: "/9j/" + "A".repeat(400) });
+const okImage = async () => ({ image: "/9j/" + "A".repeat(400) });
+let imageResult: () => Promise<unknown> = okImage;
+
+/** The prompt (and other fields) sent to the image model, for either input format. */
+async function sent(run: { model: string; input: any }) {
+  if (!run.input.multipart) return run.input;
+  const { body, contentType } = run.input.multipart;
+  const form = await new Response(body, { headers: { "content-type": contentType } }).formData();
+  return Object.fromEntries(form);
+}
 
 async function call(user: string, method: string, path: string, body?: unknown) {
   const res = await app.request(`http://test.local/api${path}`, {
@@ -76,7 +85,7 @@ test("parallel requests can't go over the allowance", async () => {
   assert.equal(results.filter((r) => r.status === 429).length, 4);
 });
 
-test("AI image: the AI describes one from the post, FLUX draws it with the style; your own description skips that step", async () => {
+test("AI image: the AI describes one from the post, FLUX.2 draws it by default; your own description skips that step", async () => {
   assert.equal((await call("owner", "GET", "/ai/image")).body.available, false);
   assert.equal((await call("owner", "POST", "/ai/image", { content: "A long enough post about lighthouses." })).status, 400);
 
@@ -91,16 +100,23 @@ test("AI image: the AI describes one from the post, FLUX draws it with the style
   assert.match(r.body.dataUrl, /^data:image\/jpeg;base64,\/9j\//);
   assert.equal(chatCalls().length, before + 1);
   assert.match(chatCalls().at(-1)!.body.messages.at(-1).content, /<post>[\s\S]*kept the lights on/);
-  const run = imageRuns.at(-1)!;
-  assert.equal(run.model, IMAGE_MODEL);
-  assert.match(run.input.prompt, /^A lighthouse at dawn, waves below\. Flat vector illustration.*No text, no letters/);
+  // FLUX.2 klein takes a multipart form.
+  assert.equal(imageRuns.at(-1)!.model, IMAGE_MODEL_IDS.better);
+  const fields = await sent(imageRuns.at(-1)!);
+  assert.match(fields.prompt, /^A lighthouse at dawn, waves below\. Flat vector illustration.*No text, no letters/);
+  assert.equal(fields.width, "1024");
+  assert.equal(fields.height, "1024");
 
-  const own = await call("owner", "POST", "/ai/image", { prompt: "A red bicycle against a white wall", style: "photo" });
+  // "Fast" uses FLUX.1 schnell with JSON input; your own description skips the AI writing step.
+  const own = await call("owner", "POST", "/ai/image", { prompt: "A red bicycle against a white wall", style: "photo", model: "fast" });
   assert.equal(own.status, 200);
   assert.equal(chatCalls().length, before + 1, "no AI writing call when you describe the image");
+  assert.equal(imageRuns.at(-1)!.model, IMAGE_MODEL_IDS.fast);
+  assert.equal(imageRuns.at(-1)!.input.steps, 8);
   assert.match(imageRuns.at(-1)!.input.prompt, /^A red bicycle against a white wall\. Editorial photograph/);
 
   assert.equal((await call("owner", "POST", "/ai/image", { prompt: "x", style: "oil-painting" })).status, 400);
+  assert.equal((await call("owner", "POST", "/ai/image", { prompt: "x", model: "dall-e" })).status, 400);
 
   imageResult = async () => {
     throw new Error("3040: capacity");
@@ -108,7 +124,26 @@ test("AI image: the AI describes one from the post, FLUX draws it with the style
   const failed = await call("owner", "POST", "/ai/image", { prompt: "A cat" });
   assert.equal(failed.status, 502);
   assert.match(failed.body.error, /Image generation failed: 3040: capacity/);
-  imageResult = async () => ({ image: "/9j/" + "A".repeat(400) });
+  imageResult = okImage;
+});
+
+test("FLUX.2's safety filter: a flagged image is retried once; flagged twice gives a clear message", async () => {
+  const flagged = async () => {
+    throw new Error("3030: Your output has been flagged. Please choose another prompt / input image combination");
+  };
+  let n = 0;
+  imageResult = () => (n++ === 0 ? flagged() : okImage());
+  const runs = imageRuns.length;
+  const ok = await call("owner", "POST", "/ai/image", { prompt: "A team at a whiteboard" });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal(imageRuns.length, runs + 2, "retried once");
+
+  imageResult = flagged;
+  const r = await call("owner", "POST", "/ai/image", { prompt: "A team at a whiteboard" });
+  assert.equal(r.status, 502);
+  assert.match(r.body.error, /safety filter blocked this one.*switch to Fast/);
+  assert.equal(imageRuns.length, runs + 4, "no more than one retry");
+  imageResult = okImage;
 });
 
 test("AI image allowance: other accounts get a daily image limit, checked before any AI writing", async () => {

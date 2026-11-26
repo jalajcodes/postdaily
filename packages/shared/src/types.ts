@@ -445,3 +445,10 @@ export const IMAGE_STYLES = {
   minimal: "Minimal",
 } as const;
 export type ImageStyle = keyof typeof IMAGE_STYLES;
+
+/** Image models (Cloudflare Workers AI). Both cost about the same: ~100 Neurons per image. */
+export const IMAGE_MODELS = {
+  better: { label: "Better", detail: "FLUX.2 klein: more natural, ~6 s" },
+  fast: { label: "Fast", detail: "FLUX.1 schnell: ~3 s" },
+} as const;
+export type ImageModel = keyof typeof IMAGE_MODELS;

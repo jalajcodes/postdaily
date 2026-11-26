@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { AI_PROVIDERS, IMAGE_STYLES, KEY_PROVIDERS, POST_LENGTHS, REWRITE_ACTIONS, hashtagsIn, normalizeHashtag, type ApiKeysStatus, type HashtagSet, type KeyProvider, type MyHashtags } from "@postdaily/shared";
+import { AI_PROVIDERS, IMAGE_MODELS, IMAGE_STYLES, KEY_PROVIDERS, POST_LENGTHS, REWRITE_ACTIONS, hashtagsIn, normalizeHashtag, type ApiKeysStatus, type HashtagSet, type KeyProvider, type MyHashtags } from "@postdaily/shared";
 import type { PlannedPost } from "@postdaily/shared";
 import { db, newId, type Statement } from "../db";
 import {
@@ -226,11 +226,12 @@ main.delete("/hashtags/sets/:id", async (c) => {
 main.get("/ai/image", (c) => c.json({ available: imageAvailable() }));
 main.post("/ai/image", async (c) => {
   const uid = c.get("userId");
-  const { content, prompt, style } = z
+  const { content, prompt, style, model } = z
     .object({
       content: z.string().max(5000).default(""),
       prompt: z.string().trim().max(800).optional(),
       style: z.enum(Object.keys(IMAGE_STYLES) as [keyof typeof IMAGE_STYLES]).default("photo"),
+      model: z.enum(Object.keys(IMAGE_MODELS) as [keyof typeof IMAGE_MODELS]).default("better"),
     })
     .parse(await c.req.json());
   if (!imageAvailable()) return c.json({ error: "Image generation needs the Cloudflare deployment (it uses Workers AI)." }, 400);
@@ -239,7 +240,7 @@ main.post("/ai/image", async (c) => {
   const left = await allowance(uid);
   if (left && left.image.used >= left.image.limit) throw new AILimitError(limitMessage("image", left.image.limit));
   const description = prompt || (await writeImagePrompt(await getSettings(uid), content, IMAGE_STYLES[style]));
-  return c.json({ dataUrl: await generateImage(uid, description, style), prompt: description });
+  return c.json({ dataUrl: await generateImage(uid, description, style, model), prompt: description });
 });
 
 main.post("/ai/carousel", async (c) => {
