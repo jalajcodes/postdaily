@@ -195,3 +195,46 @@ test("your hashtags: most used from published and queued posts (not drafts); set
   assert.equal((await call("owner", "GET", "/hashtags")).body.sets.length, 1);
   assert.deepEqual((await call("owner", "DELETE", `/hashtags/sets/${id}`)).body.sets, []);
 });
+
+test("image library: every AI image is kept; get, isolation, delete, and a full library stops before generating", async () => {
+  setAiBinding({ run: async (model: string, input: any) => (imageRuns.push({ model, input }), imageResult()) });
+  await db.run("DELETE FROM images");
+
+  const made = await call("owner", "POST", "/ai/image", { prompt: "A mountain lake at dawn", style: "3d", model: "fast" });
+  assert.equal(made.status, 200, JSON.stringify(made.body));
+  const img = made.body.image;
+  assert.equal(img.prompt, "A mountain lake at dawn");
+  assert.equal(img.style, "3d");
+  assert.equal(img.model, "fast");
+  assert.ok(img.bytes > 200);
+
+  const list = (await call("owner", "GET", "/images")).body;
+  assert.deepEqual(list.map((i: any) => i.id), [img.id]);
+  assert.equal(list[0].dataUrl, undefined, "the list doesn't carry image data");
+  assert.equal((await call("owner", "GET", `/images/${img.id}`)).body.dataUrl, made.body.dataUrl);
+
+  // Other accounts can't see, fetch or delete it.
+  assert.deepEqual((await call("friend", "GET", "/images")).body, []);
+  assert.equal((await call("friend", "GET", `/images/${img.id}`)).status, 404);
+  await call("friend", "DELETE", `/images/${img.id}`);
+  assert.equal((await call("owner", "GET", `/images/${img.id}`)).status, 200);
+
+  // Newest first.
+  const second = (await call("owner", "POST", "/ai/image", { prompt: "A red kite" })).body.image;
+  assert.deepEqual((await call("owner", "GET", "/images")).body.map((i: any) => i.id), [second.id, img.id]);
+
+  assert.equal((await call("owner", "DELETE", `/images/${img.id}`)).status, 200);
+  assert.equal((await call("owner", "GET", `/images/${img.id}`)).status, 404);
+
+  // Full library: refused before any AI work.
+  for (let i = 0; i < 199; i++)
+    await db.run("INSERT INTO images (id, user_id, data_url, prompt, style, model, bytes) VALUES (?, 'owner', 'data:image/jpeg;base64,AA', 'x', 'photo', 'fast', 1)", `fill${i}`);
+  const runs = imageRuns.length;
+  const chats = chatCalls().length;
+  const full = await call("owner", "POST", "/ai/image", { content: "A long enough post about kites and wind and summer." });
+  assert.equal(full.status, 400);
+  assert.match(full.body.error, /library is full \(200 images\)/);
+  assert.equal(imageRuns.length, runs);
+  assert.equal(chatCalls().length, chats);
+  setAiBinding(undefined);
+});

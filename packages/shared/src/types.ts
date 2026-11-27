@@ -452,3 +452,15 @@ export const IMAGE_MODELS = {
   fast: { label: "Fast", detail: "FLUX.1 schnell: ~3 s" },
 } as const;
 export type ImageModel = keyof typeof IMAGE_MODELS;
+
+/** An image in your library (the image data is fetched separately). */
+export interface LibraryImage {
+  id: string;
+  prompt: string;
+  style: ImageStyle;
+  model: ImageModel;
+  bytes: number;
+  createdAt: string;
+}
+/** Images kept per account. */
+export const MAX_LIBRARY_IMAGES = 200;

@@ -2,33 +2,15 @@
 // Cloudflare Workers AI, and you can use it as the post's image. Alt text = the description.
 // Two models: "Better" (FLUX.2 klein) and "Fast" (FLUX.1 schnell); the choice is remembered.
 import { useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, Sparkles, X } from "lucide-react";
-import { IMAGE_MODELS, IMAGE_STYLES, type ImageModel, type ImageStyle } from "@postdaily/shared";
+import type { ImageStyle } from "@postdaily/shared";
 import { api } from "../lib/api";
-import { prepareImage } from "../lib/image";
+import { ModelPicker, StylePicker, toUploadable, useImageModel } from "./ImageControls";
 import { ThinkingNote } from "./Thinking";
 import { Button, ErrorText, inputCls } from "./ui";
 
-const MODEL_KEY = "postdaily.imageModel";
-function savedModel(): ImageModel {
-  try {
-    const v = localStorage.getItem(MODEL_KEY);
-    return v && v in IMAGE_MODELS ? (v as ImageModel) : "better";
-  } catch {
-    return "better";
-  }
-}
-
-async function toUploadable(dataUrl: string) {
-  const blob = await (await fetch(dataUrl)).blob();
-  return prepareImage(new File([blob], "ai-image", { type: blob.type || "image/jpeg" }));
-}
-
-/** The "AI image" button; opens the panel when clicked. Hidden where image generation isn't available. */
-export function useAiImageAvailable() {
-  return useQuery({ queryKey: ["ai-image-available"], queryFn: api.ai.imageAvailable, staleTime: Infinity }).data?.available ?? false;
-}
+export { useAiImageAvailable } from "./ImageControls";
 
 export function AiImagePanel({
   content,
@@ -42,20 +24,16 @@ export function AiImagePanel({
   saving: boolean;
 }) {
   const [style, setStyle] = useState<ImageStyle>("photo");
-  const [model, setModelState] = useState<ImageModel>(savedModel);
-  const setModel = (m: ImageModel) => {
-    setModelState(m);
-    try {
-      localStorage.setItem(MODEL_KEY, m);
-    } catch {
-      /* private mode */
-    }
-  };
+  const [model, setModel] = useImageModel();
+  const qc = useQueryClient();
   const [description, setDescription] = useState("");
   const [prepError, setPrepError] = useState<unknown>(null);
   const gen = useMutation({
     mutationFn: () => api.ai.image({ content, prompt: description.trim() || undefined, style, model }),
-    onSuccess: (r) => setDescription(r.prompt),
+    onSuccess: (r) => {
+      setDescription(r.prompt);
+      qc.invalidateQueries({ queryKey: ["images"] }); // it's also saved to your library
+    },
   });
 
   return (
@@ -68,34 +46,8 @@ export function AiImagePanel({
           <X className="size-4" />
         </button>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs" role="group" aria-label="Image model">
-          {(Object.entries(IMAGE_MODELS) as [ImageModel, (typeof IMAGE_MODELS)[ImageModel]][]).map(([k, m]) => (
-            <button
-              key={k}
-              aria-pressed={model === k}
-              title={m.detail}
-              onClick={() => setModel(k)}
-              className={`rounded-md px-3 py-1 ${model === k ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-        <span className="text-xs text-slate-500">{IMAGE_MODELS[model].detail}</span>
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {(Object.entries(IMAGE_STYLES) as [ImageStyle, string][]).map(([k, label]) => (
-          <button
-            key={k}
-            aria-pressed={style === k}
-            onClick={() => setStyle(k)}
-            className={`rounded-full border px-3 py-1 text-xs ${style === k ? "border-brand-500 bg-brand-50 text-brand-700" : "border-slate-200 bg-white text-slate-700 hover:border-brand-500"}`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <ModelPicker model={model} onChange={setModel} />
+      <StylePicker style={style} onChange={setStyle} />
       <textarea
         className={`${inputCls} min-h-16 text-sm`}
         maxLength={800}
@@ -131,7 +83,7 @@ export function AiImagePanel({
             >
               Use this image
             </Button>
-            <span className="text-xs text-slate-500">Edit the description above to change it, then make another.</span>
+            <span className="text-xs text-slate-500">Saved to Images too. Edit the description above to change it, then make another.</span>
           </div>
         </div>
       )}

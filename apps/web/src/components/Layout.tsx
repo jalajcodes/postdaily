@@ -1,9 +1,10 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, CalendarClock, CalendarRange, Menu, FileText, Flame, Lightbulb, LogOut, PenLine, Settings, Sparkles, Sun } from "lucide-react";
+import { Bell, CalendarClock, CalendarRange, Menu, FileText, Flame, ImageIcon, Lightbulb, LogOut, PenLine, Settings, Sparkles, Sun } from "lucide-react";
 import { api, tokenStore } from "../lib/api";
 import { Logo } from "./Logo";
+import { ThemeToggle } from "./ThemeToggle";
 import { applyFuture } from "../future/theme";
 
 // Futuristic mode extras, only downloaded when the mode is on.
@@ -16,6 +17,7 @@ const nav = [
   { to: "/plan", label: "Plan week", icon: CalendarRange },
   { to: "/drafts", label: "Drafts", icon: FileText },
   { to: "/ideas", label: "Ideas", icon: Lightbulb },
+  { to: "/images", label: "Images", icon: ImageIcon },
   { to: "/queue", label: "Queue", icon: CalendarClock },
   { to: "/style", label: "My style", icon: Sparkles },
   { to: "/settings", label: "Settings", icon: Settings },
@@ -123,7 +125,7 @@ export function Layout() {
   );
 
   return (
-    <div className="flex min-h-dvh flex-col md:flex-row">
+    <div className="app-shell flex min-h-dvh flex-col md:flex-row">
       {future && (
         <Suspense fallback={null}>
           <Backdrop />
@@ -138,6 +140,7 @@ export function Layout() {
         </div>
         <div className="flex items-center gap-1">
           {streak}
+          {!future && <ThemeToggle />}
           {bell}
         </div>
       </header>
@@ -149,7 +152,10 @@ export function Layout() {
             <Logo className="size-8" />
             PostDaily
           </div>
-          {bell}
+          <div className="flex items-center">
+            {!future && <ThemeToggle />}
+            {bell}
+          </div>
         </div>
         <nav className="flex flex-col gap-1 px-3">
           {nav.map(({ to, label, icon: Icon, end }) => (

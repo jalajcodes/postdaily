@@ -5,6 +5,7 @@ import {
   CalendarPlus,
   Clock,
   GalleryHorizontal,
+  Images,
   ImagePlus,
   MessageSquareText,
   Pencil,
@@ -37,6 +38,7 @@ import { ThinkingNote } from "../components/Thinking";
 import { CarouselEditor } from "../components/CarouselEditor";
 import { HashtagsBox } from "../components/HashtagsBox";
 import { AiImagePanel, useAiImageAvailable } from "../components/AiImagePanel";
+import { LibraryPicker } from "../components/LibraryPicker";
 import { Button, Card, ErrorText, Spinner, inputCls } from "../components/ui";
 
 const QUICK: RewriteAction[] = ["shorter", "longer", "punchier", "casual", "professional", "add_cta", "fix_formatting"];
@@ -177,6 +179,7 @@ export function EditorPage() {
   const [imageError, setImageError] = useState<unknown>(null);
   const aiImageAvailable = useAiImageAvailable();
   const [aiImageOpen, setAiImageOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
 
   // Hook variants: 3 alternative openings; picking one replaces the first paragraph.
   const hooks = useMutation({ mutationFn: () => api.ai.hooks(content) });
@@ -496,6 +499,9 @@ export function EditorPage() {
                     <Sparkles className="size-4" /> AI image
                   </Button>
                 )}
+                <Button variant="secondary" onClick={() => setLibraryOpen(true)} disabled={setImage.isPending}>
+                  <Images className="size-4" /> From my images
+                </Button>
                 <Button
                   variant="secondary"
                   disabled={content.trim().length < 50}
@@ -506,6 +512,12 @@ export function EditorPage() {
                   <GalleryHorizontal className="size-4" /> Make a carousel
                 </Button>
               </div>
+            )}
+            {libraryOpen && (
+              <LibraryPicker
+                onClose={() => setLibraryOpen(false)}
+                onUse={(dataUrl, alt) => setImage.mutateAsync({ dataUrl, alt })}
+              />
             )}
             {aiImageOpen && !p.hasImage && (
               <AiImagePanel

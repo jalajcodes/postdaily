@@ -7,6 +7,7 @@ import { auth } from "./routes/auth";
 import { main } from "./routes/main";
 import { ideas } from "./routes/ideas";
 import { posts } from "./routes/posts";
+import { images } from "./routes/images";
 import { AIError, AILimitError } from "./ai/providers";
 import { env } from "./runtime/env";
 import { db } from "./db";
@@ -56,6 +57,7 @@ export function createApp() {
   protectedApi.route("/", main);
   protectedApi.route("/", ideas);
   protectedApi.route("/", posts);
+  protectedApi.route("/", images);
   app.route("/api", protectedApi);
 
   return app;

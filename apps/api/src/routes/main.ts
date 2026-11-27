@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { AI_PROVIDERS, IMAGE_MODELS, IMAGE_STYLES, KEY_PROVIDERS, POST_LENGTHS, REWRITE_ACTIONS, hashtagsIn, normalizeHashtag, type ApiKeysStatus, type HashtagSet, type KeyProvider, type MyHashtags } from "@postdaily/shared";
+import { AI_PROVIDERS, IMAGE_MODELS, IMAGE_STYLES, KEY_PROVIDERS, MAX_LIBRARY_IMAGES, POST_LENGTHS, REWRITE_ACTIONS, hashtagsIn, normalizeHashtag, type ApiKeysStatus, type HashtagSet, type KeyProvider, type MyHashtags } from "@postdaily/shared";
 import type { PlannedPost } from "@postdaily/shared";
 import { db, newId, type Statement } from "../db";
 import {
@@ -37,6 +37,7 @@ import type { AppEnv } from "../lib/auth";
 import { canStoreKeys, deleteKey, ENV_KEY, listKeys, saveKey } from "../lib/keystore";
 import { allowance } from "../lib/usage";
 import { generateImage, imageAvailable } from "../ai/image";
+import { LibraryFullError, libraryCount, saveToLibrary } from "./images";
 import { AILimitError, limitMessage } from "../ai/providers";
 import { checkKeyFormat, InvalidKeyError, verifyKey, VerifyUnavailableError } from "../lib/verify-key";
 
@@ -239,8 +240,12 @@ main.post("/ai/image", async (c) => {
   // Don't spend a writing request on the description if no images are left today.
   const left = await allowance(uid);
   if (left && left.image.used >= left.image.limit) throw new AILimitError(limitMessage("image", left.image.limit));
+  if ((await libraryCount(uid)) >= MAX_LIBRARY_IMAGES) return c.json({ error: new LibraryFullError().message }, 400);
   const description = prompt || (await writeImagePrompt(await getSettings(uid), content, IMAGE_STYLES[style]));
-  return c.json({ dataUrl: await generateImage(uid, description, style, model), prompt: description });
+  const dataUrl = await generateImage(uid, description, style, model);
+  // Every image is kept in your library, so nothing you make is lost.
+  const image = await saveToLibrary(uid, { dataUrl, prompt: description, style, model });
+  return c.json({ dataUrl, prompt: description, image });
 });
 
 main.post("/ai/carousel", async (c) => {

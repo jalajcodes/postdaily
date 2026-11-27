@@ -19,6 +19,8 @@ import "@fontsource/playfair-display/700.css";
 import "@fontsource/playfair-display/600-italic.css";
 import "./index.css";
 import "./future/future.css";
+import "./theme/dark.css";
+import { applySavedDark } from "./theme/dark";
 import { tokenStore } from "./lib/api";
 import { registerServiceWorker } from "./lib/push";
 import { applySavedFuture } from "./future/theme";
@@ -28,6 +30,7 @@ import { TodayPage } from "./pages/Today";
 import { WritePage } from "./pages/Write";
 import { PlanPage } from "./pages/Plan";
 import { EditorPage } from "./pages/Editor";
+import { ImagesPage } from "./pages/Images";
 import { IdeasPage } from "./pages/Ideas";
 import { DraftsPage } from "./pages/Drafts";
 import { QueuePage } from "./pages/Queue";
@@ -55,6 +58,7 @@ function RequireAuth({ children }: { children: ReactNode }) {
 
 registerServiceWorker();
 applySavedFuture();
+applySavedDark();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -77,6 +81,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="posts/:id" element={<EditorPage />} />
             <Route path="drafts" element={<DraftsPage />} />
             <Route path="ideas" element={<IdeasPage />} />
+            <Route path="images" element={<ImagesPage />} />
             <Route path="queue" element={<QueuePage />} />
             <Route path="style" element={<StylePage />} />
             <Route path="settings" element={<SettingsPage />} />

@@ -17,6 +17,7 @@ import type {
   ApiKeysStatus,
   HashtagSuggestion,
   ImageModel,
+  LibraryImage,
   ImageStyle,
   MyHashtags,
   KeyProvider,
@@ -98,6 +99,12 @@ export function createClient(opts: ClientOptions) {
       analyze: () => req<Profile>("POST", "/profile/analyze"),
       clearLearned: () => req<Profile>("DELETE", "/profile/learned"),
     },
+    /** Your image library (every AI image you make is kept here). */
+    images: {
+      list: () => req<LibraryImage[]>("GET", "/images"),
+      get: (id: string) => req<{ dataUrl: string }>("GET", `/images/${id}`),
+      remove: (id: string) => req<{ ok: true }>("DELETE", `/images/${id}`),
+    },
     hashtags: {
       /** The hashtags you use most (from published and queued posts) and your saved sets. */
       mine: () => req<MyHashtags>("GET", "/hashtags"),
@@ -121,7 +128,8 @@ export function createClient(opts: ClientOptions) {
       /** Whether this server can generate images (Cloudflare deployment). */
       imageAvailable: () => req<{ available: boolean }>("GET", "/ai/image"),
       /** An AI image for the post. Without a prompt, the AI describes one from the post first. */
-      image: (p: { content?: string; prompt?: string; style: ImageStyle; model?: ImageModel }) => req<{ dataUrl: string; prompt: string }>("POST", "/ai/image", p),
+      image: (p: { content?: string; prompt?: string; style: ImageStyle; model?: ImageModel }) =>
+        req<{ dataUrl: string; prompt: string; image: LibraryImage }>("POST", "/ai/image", p),
       /** Popular hashtags that fit the post (AI-picked; not live trend data). */
       hashtags: (content: string) => req<{ hashtags: HashtagSuggestion[] }>("POST", "/ai/hashtags", { content }),
       /** Whether the server can turn recorded voice notes into text. */

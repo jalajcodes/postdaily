@@ -1,0 +1,188 @@
+/* Dark mode. Applies inside the app (.app-shell) when <html class="dark">, unless Futuristic
+   mode is on (it has its own dark look). Like future.css, it remaps Tailwind's color variables. */
+
+:root.dark:not([data-theme="future"]) {
+  color-scheme: dark;
+}
+:root.dark:not([data-theme="future"]) body {
+  background: #0d1117;
+  color: #e6ebf2;
+}
+
+:root.dark:not([data-theme="future"]) .app-shell {
+  --color-white: #161b24;
+  --color-slate-50: #0d1117;
+  --color-slate-100: #1d2430;
+  --color-slate-200: #283141;
+  --color-slate-300: #384356;
+  --color-slate-400: #6c7890;
+  --color-slate-500: #8f9bb0;
+  --color-slate-600: #aab5c6;
+  --color-slate-700: #c7cfdb;
+  --color-slate-800: #dde3ec;
+  --color-slate-900: #eef2f7;
+  --color-brand-50: rgb(88 166 255 / 0.12);
+  --color-brand-100: rgb(88 166 255 / 0.22);
+  --color-brand-200: rgb(88 166 255 / 0.35);
+  --color-brand-500: #2f81f7;
+  --color-brand-600: #58a6ff;
+  --color-brand-700: #8cc4ff;
+  --color-amber-50: rgb(245 158 11 / 0.12);
+  --color-amber-100: rgb(245 158 11 / 0.2);
+  --color-amber-200: rgb(245 158 11 / 0.3);
+  --color-amber-300: rgb(245 158 11 / 0.45);
+  --color-amber-700: #f5c451;
+  --color-amber-800: #fbd77a;
+  --color-amber-900: #fde9b0;
+  --color-red-50: rgb(248 81 73 / 0.12);
+  --color-red-200: rgb(248 81 73 / 0.3);
+  --color-red-600: #ff7b72;
+  --color-red-700: #ffa198;
+  --color-red-800: #ffc1ba;
+  --color-green-50: rgb(46 160 67 / 0.14);
+  --color-green-600: #3fb950;
+  --color-green-700: #6fdd8b;
+  --color-orange-50: rgb(219 109 40 / 0.15);
+  --color-orange-800: #f0a35e;
+  --color-violet-50: rgb(163 113 247 / 0.15);
+  --color-violet-700: #c9a8ff;
+}
+
+/* Text on colored buttons stays white; selected toggles become blue instead of near-white. */
+:root.dark:not([data-theme="future"]) .app-shell .text-white {
+  color: #fff;
+}
+:root.dark:not([data-theme="future"]) .app-shell .bg-slate-900 {
+  background-color: #2f81f7;
+}
+/* Dimmed overlays behind dialogs stay dark. */
+:root.dark:not([data-theme="future"]) .app-shell .bg-slate-900\/60,
+:root.dark:not([data-theme="future"]) .app-shell .bg-slate-900\/50,
+:root.dark:not([data-theme="future"]) .app-shell .bg-slate-900\/40 {
+  background-color: rgb(1 4 9 / 0.7);
+}
+:root.dark:not([data-theme="future"]) .app-shell .shadow-sm,
+:root.dark:not([data-theme="future"]) .app-shell .shadow,
+:root.dark:not([data-theme="future"]) .app-shell .shadow-lg,
+:root.dark:not([data-theme="future"]) .app-shell .shadow-xl {
+  --tw-shadow-color: rgb(0 0 0 / 0.5);
+}
+
+/* The LinkedIn preview keeps LinkedIn's real (light) look. */
+:root.dark:not([data-theme="future"]) .app-shell .keep-light {
+  color-scheme: light;
+  color: #0f172a;
+  --color-white: #fff;
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f1f5f9;
+  --color-slate-200: #e2e8f0;
+  --color-slate-300: #cbd5e1;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-slate-700: #334155;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #0f172a;
+  --color-brand-50: #eef5fc;
+  --color-brand-100: #d6e7f8;
+  --color-brand-500: #0a66c2;
+  --color-brand-600: #0958a8;
+  --color-brand-700: #074a8d;
+  --color-amber-50: #fffbeb;
+  --color-amber-300: #fcd34d;
+  --color-amber-800: #92400e;
+}
+:root.dark:not([data-theme="future"]) .app-shell .keep-light .bg-slate-900 {
+  background-color: #0f172a;
+}
+
+/* --- The eclipse switch animation (driven by theme/dark.ts) ---
+   One animated value, --eclipse-r (the circle's radius), drives everything, so the reveal and
+   its glowing edge always move together. --eclipse-x/-y is where the circle starts. */
+
+/* The new theme shows through a circle of radius --eclipse-r; no default cross-fade. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-new(root) {
+  clip-path: circle(var(--eclipse-r, 0px) at var(--eclipse-x, 50%) var(--eclipse-y, 50%));
+}
+
+/* The corona: a full-screen layer above both pictures, painted fresh every frame as a ring
+   right on the circle's edge (so it stays sharp at any size). Its own snapshot is hidden. */
+::view-transition-group(theme-corona) {
+  animation: none;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  transform: none;
+  pointer-events: none;
+}
+/* Hidden with opacity: `display: none` here makes the browser abort the whole transition. */
+::view-transition-old(theme-corona),
+::view-transition-new(theme-corona) {
+  animation: none;
+  opacity: 0;
+}
+:root.eclipse-to-dark::view-transition-group(theme-corona) {
+  background: radial-gradient(
+    circle at var(--eclipse-x) var(--eclipse-y),
+    transparent calc(var(--eclipse-r) - 26px),
+    rgb(255 214 140 / calc(0.35 * var(--eclipse-glow))) calc(var(--eclipse-r) - 6px),
+    rgb(255 247 222 / calc(0.95 * var(--eclipse-glow))) var(--eclipse-r),
+    rgb(255 221 140 / calc(0.75 * var(--eclipse-glow))) calc(var(--eclipse-r) + 6px),
+    rgb(255 176 64 / calc(0.35 * var(--eclipse-glow))) calc(var(--eclipse-r) + 26px),
+    rgb(255 140 40 / calc(0.12 * var(--eclipse-glow))) calc(var(--eclipse-r) + 70px),
+    transparent calc(var(--eclipse-r) + 130px)
+  );
+}
+:root.eclipse-to-light::view-transition-group(theme-corona) {
+  background: radial-gradient(
+    circle at var(--eclipse-x) var(--eclipse-y),
+    transparent calc(var(--eclipse-r) - 30px),
+    rgb(255 240 200 / calc(0.45 * var(--eclipse-glow))) calc(var(--eclipse-r) - 8px),
+    rgb(255 255 255 / calc(0.95 * var(--eclipse-glow))) var(--eclipse-r),
+    rgb(255 236 170 / calc(0.8 * var(--eclipse-glow))) calc(var(--eclipse-r) + 7px),
+    rgb(255 200 90 / calc(0.4 * var(--eclipse-glow))) calc(var(--eclipse-r) + 30px),
+    rgb(255 170 60 / calc(0.14 * var(--eclipse-glow))) calc(var(--eclipse-r) + 80px),
+    transparent calc(var(--eclipse-r) + 150px)
+  );
+}
+
+/* The element that gives the corona layer its name. It's never seen itself. */
+.eclipse-corona {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+  view-transition-name: theme-corona;
+}
+
+/* The sun/moon button: the icons swap with a small turn. */
+.theme-toggle svg {
+  transition:
+    transform 0.4s cubic-bezier(0.65, 0, 0.3, 1),
+    opacity 0.25s ease;
+}
+.theme-toggle .icon-sun {
+  transform: rotate(-90deg) scale(0.4);
+  opacity: 0;
+}
+.theme-toggle.is-dark .icon-sun {
+  transform: none;
+  opacity: 1;
+}
+.theme-toggle.is-dark .icon-moon {
+  transform: rotate(90deg) scale(0.4);
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme-toggle svg {
+    transition: none;
+  }
+}
